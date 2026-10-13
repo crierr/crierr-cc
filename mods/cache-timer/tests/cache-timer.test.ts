@@ -1,0 +1,85 @@
+import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+import type { On, RenderElement } from 'claude-code'
+
+const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+
+function bottom(on: On) {
+  const status: (string | undefined)[] = []
+  const forks: string[] = []
+  const writes: string[] = []
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  on('ui.status', (_$, e) => { status.push(e.text); return { value: undefined } })
+  on('ui.render', ($, e) => h($.ui.resolve(e).Box, {}) as RenderElement) // the engine's own (empty) band
+  on('ui.toast', () => ({ value: undefined }))
+  on('model.fork', (_$, e) => {
+    forks.push(e.prompt)
+    return { value: { isAnswered: true, text: '# Handoff', usage } }
+  })
+  on('fs.write', (_$, e) => { writes.push(e.path); return { value: undefined } })
+  return { status, forks, writes }
+}
+
+async function step($: Engine) {
+  const s = $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 })
+  for await (const _ of s);
+}
+
+const BAND = {
+  plugin: 'cache-timer',
+  surface: 'terminal',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+} as const
+
+// The band's text, or undefined when it draws nothing of its own.
+async function band($: Engine) {
+  const ui = await $.ui.mount(BAND)
+  const found = await ui.find({ type: 'Text', text: /cache/ })
+  await ui.unmount()
+  return found?.text
+}
+
+const start = ($: Engine) => $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
+
+test('default: counts down, then expires, never forks', async ($, on) => {
+  const clock = mock.clock(on)
+  const b = bottom(on)
+  await start($)
+  expect(await band($)).toBeUndefined()
+  await step($)
+  await clock.advance(1000)
+  expect(await band($)).toBe('● cache 4:59')
+  await clock.advance(300_000)
+  expect(await band($)).toBe('● cache expired')
+  expect(b.forks.length).toBe(0)
+})
+
+test('keepwarm: pings 1 min before, up to the cap', { options: { mode: 'keepwarm', maxKeepwarmPings: 2 } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const b = bottom(on)
+  await start($)
+  await step($)
+  await clock.advance(239_000)
+  expect(b.forks.length).toBe(0)
+  await clock.advance(1000)
+  expect(b.forks.length).toBe(1)
+  await clock.advance(240_000)
+  expect(b.forks.length).toBe(2)
+  await clock.advance(600_000)
+  expect(b.forks.length).toBe(2)
+  expect(await band($)).toBe('● cache expired [keepwarm]')
+})
+
+test('auto-handoff: writes once', { options: { mode: 'auto-handoff' } }, async ($, on) => {
+  const clock = mock.clock(on)
+  const b = bottom(on)
+  await start($)
+  await step($)
+  await clock.advance(900_000)
+  expect(b.writes.length).toBe(1)
+  expect(b.writes[0]?.endsWith('/.claude/HANDOFF.md')).toBe(true)
+})

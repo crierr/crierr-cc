@@ -1,0 +1,27 @@
+{
+  "name": "cache-timer",
+  "version": "0.1.0",
+  "description": "Status-line countdown to prompt cache expiry, with optional keepwarm or auto-handoff",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "default: show only. keepwarm: ping 1 min before expiry. auto-handoff: write .claude/HANDOFF.md 1 min before expiry.",
+      "default": "default",
+      "options": ["default", "keepwarm", "auto-handoff"]
+    },
+    "ttlSeconds": {
+      "type": "number",
+      "title": "Cache TTL (seconds)",
+      "description": "300 for Bedrock's default 5m cache; 3600 for 1h.",
+      "default": 300
+    },
+    "maxKeepwarmPings": {
+      "type": "number",
+      "title": "Max keepwarm pings while idle",
+      "description": "Each ping re-reads the whole context. Stops after this many with no real turn.",
+      "default": 6
+    }
+  }
+}

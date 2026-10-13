@@ -1,0 +1,13 @@
+{
+  "name": "claude-code-mods",
+  "owner": {
+    "name": "crierr"
+  },
+  "plugins": [
+    {
+      "name": "cache-timer",
+      "source": "./mods/cache-timer",
+      "description": "Countdown to prompt cache expiry above the prompt, with optional keepwarm or auto-handoff"
+    }
+  ]
+}
