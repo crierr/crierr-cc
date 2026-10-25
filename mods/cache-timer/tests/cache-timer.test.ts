@@ -20,6 +20,7 @@ function bottom(on: On) {
     return { value: { isAnswered: true, text: '# Handoff', usage } }
   })
   on('fs.write', (_$, e) => { writes.push(e.path); return { value: undefined } })
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
   return { status, forks, writes }
 }
 
@@ -35,12 +36,12 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
-// The band's text, or undefined when it draws nothing of its own.
+// The band's cache text, or undefined when it draws nothing of its own.
 async function band($: Engine) {
   const ui = await $.ui.mount(BAND)
   const found = await ui.find({ type: 'Text', text: /cache/ })
   await ui.unmount()
-  return found?.text
+  return found?.text?.trim()
 }
 
 const start = ($: Engine) => $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
@@ -71,7 +72,7 @@ test('keepwarm: pings 1 min before, up to the cap', { options: { mode: 'keepwarm
   expect(b.forks.length).toBe(2)
   await clock.advance(600_000)
   expect(b.forks.length).toBe(2)
-  expect(await band($)).toBe('● cache expired [keepwarm]')
+  expect(await band($)).toBe('● cache expired')
 })
 
 test('auto-handoff: writes once', { options: { mode: 'auto-handoff' } }, async ($, on) => {
@@ -82,4 +83,34 @@ test('auto-handoff: writes once', { options: { mode: 'auto-handoff' } }, async (
   await clock.advance(900_000)
   expect(b.writes.length).toBe(1)
   expect(b.writes[0]?.endsWith('/.claude/HANDOFF.md')).toBe(true)
+})
+
+test('bar: elapsed since input over ttl x max pings', { options: { mode: 'keepwarm', maxKeepwarmPings: 12 } }, async ($, on) => {
+  const clock = mock.clock(on)
+  bottom(on)
+  await start($)
+  await $.prompt.submit({ text: 'hi', asUser: true })
+  await step($)
+  await clock.advance(30 * 60_000) // half of 12 x 5m
+  const ui = await $.ui.mount(BAND)
+  expect((await ui.find({ type: 'Text', text: /░/ }))?.text?.trim()).toBe('█████░░░░░ 30m')
+  await ui.unmount()
+})
+
+test('handoff button: off by default, on writes once', async ($, on) => {
+  const clock = mock.clock(on)
+  const b = bottom(on)
+  await start($)
+  await step($)
+  await clock.advance(1000)
+  const ui = await $.ui.mount(BAND)
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe('handoff: off')
+  await clock.advance(900_000)
+  expect(b.writes.length).toBe(0)
+  await ui.press({ key: 'handoff' })
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe('handoff: on')
+  await ui.unmount()
+  await step($)
+  await clock.advance(900_000)
+  expect(b.writes.length).toBe(1)
 })

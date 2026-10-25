@@ -1,13 +1,13 @@
 {
   "name": "cache-timer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Status-line countdown to prompt cache expiry, with optional keepwarm or auto-handoff",
   "types": "./types/index.d.ts",
   "userConfig": {
     "mode": {
       "type": "string",
       "title": "Mode",
-      "description": "default: show only. keepwarm: ping 1 min before expiry. auto-handoff: write .claude/HANDOFF.md 1 min before expiry.",
+      "description": "default: show only. keepwarm: ping 1 min before expiry. auto-handoff: start with the handoff button on (writes .claude/HANDOFF.md 1 min before expiry, after any keepwarm pings).",
       "default": "default",
       "options": ["default", "keepwarm", "auto-handoff"]
     },
