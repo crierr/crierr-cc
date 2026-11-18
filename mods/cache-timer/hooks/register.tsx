@@ -12,7 +12,7 @@ const handoffOn = atom({ plugin: 'cache-timer', key: 'handoffOn' } as const, nul
 
 type Cfg = { mode: string; ttlMs: number; maxPings: number }
 
-const BAR = 10
+const BAR = 5
 
 const LEAD_MS = 60_000
 const HANDOFF_PATH = '.claude/HANDOFF.md'
@@ -117,7 +117,15 @@ export const register: Register = (on, options) => {
       <Box>
         <Text color={color}>● cache {left === 0 ? 'expired' : fmt(left)} </Text>
         {since !== null && <Text dimColor>{bar(since, maxMs)} {since / 60_000}m </Text>}
-        <Button key="handoff" label={`handoff: ${isOn ? 'on' : 'off'}`} onPress={() => update($, handoffOn, () => !isOn)} />
+        <Button
+          key="handoff"
+          label={isOn ? '->✏️' : '🔁'}
+          plain
+          onPress={async () => {
+            await update($, handoffOn, () => !isOn)
+            $.ui.toast(isOn ? 'auto-handoff off' : `auto-handoff on: writes ${HANDOFF_PATH} 1 min before cache expiry`, { timeoutMs: 4000 })
+          }}
+        />
       </Box>
     )
   })

@@ -8,20 +8,21 @@ function bottom(on: On) {
   const status: (string | undefined)[] = []
   const forks: string[] = []
   const writes: string[] = []
+  const toasts: string[] = []
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.step', async function* (_$, e) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
   on('ui.status', (_$, e) => { status.push(e.text); return { value: undefined } })
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, {}) as RenderElement) // the engine's own (empty) band
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => { toasts.push(e.text); return { value: undefined } })
   on('model.fork', (_$, e) => {
     forks.push(e.prompt)
     return { value: { isAnswered: true, text: '# Handoff', usage } }
   })
   on('fs.write', (_$, e) => { writes.push(e.path); return { value: undefined } })
   on('prompt.submit', (_$, e) => ({ text: e.text }))
-  return { status, forks, writes }
+  return { status, forks, writes, toasts }
 }
 
 async function step($: Engine) {
@@ -93,7 +94,7 @@ test('bar: elapsed since input over ttl x max pings', { options: { mode: 'keepwa
   await step($)
   await clock.advance(30 * 60_000) // half of 12 x 5m
   const ui = await $.ui.mount(BAND)
-  expect((await ui.find({ type: 'Text', text: /░/ }))?.text?.trim()).toBe('█████░░░░░ 30m')
+  expect((await ui.find({ type: 'Text', text: /░/ }))?.text?.trim()).toBe('███░░ 30m')
   await ui.unmount()
 })
 
@@ -104,11 +105,12 @@ test('handoff button: off by default, on writes once', async ($, on) => {
   await step($)
   await clock.advance(1000)
   const ui = await $.ui.mount(BAND)
-  expect((await ui.find({ key: 'handoff' }))?.text).toBe('handoff: off')
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe('🔁')
   await clock.advance(900_000)
   expect(b.writes.length).toBe(0)
   await ui.press({ key: 'handoff' })
-  expect((await ui.find({ key: 'handoff' }))?.text).toBe('handoff: on')
+  expect(b.toasts.at(-1)).toMatch(/^auto-handoff on/)
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe('->✏️')
   await ui.unmount()
   await step($)
   await clock.advance(900_000)
