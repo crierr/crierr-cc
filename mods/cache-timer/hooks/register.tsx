@@ -23,9 +23,9 @@ const HANDOFF_PROMPT =
 
 let acting = false
 
-export function fmt(ms: number) {
-  const s = Math.max(0, Math.ceil(ms / 1000))
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+export function ago(ms: number) {
+  const m = ms / 60_000
+  return `${m} minute${m === 1 ? '' : 's'} ago`
 }
 
 export function bar(ms: number, maxMs: number) {
@@ -106,26 +106,32 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const left = await read($, leftMs)
-    if (e.props.hasSurvey || left === null) return next(e)
+    const since = await read($, sinceMs)
+    if (e.props.hasSurvey || left === null || since === null) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const color = left === 0 ? 'error' : left <= 120_000 ? 'warning' : 'success'
-    const since = await read($, sinceMs)
     const isOn = await isHandoff($, cfg)
 
     return (
       <Box>
-        <Text color={color}>● cache {left === 0 ? 'expired' : fmt(left)} </Text>
-        {since !== null && <Text dimColor>{bar(since, maxMs)} {since / 60_000}m </Text>}
-        <Button
-          key="handoff"
-          label={isOn ? '->✏️' : '🔁'}
-          plain
-          onPress={async () => {
-            await update($, handoffOn, () => !isOn)
-            $.ui.toast(isOn ? 'auto-handoff off' : `auto-handoff on: writes ${HANDOFF_PATH} 1 min before cache expiry`, { timeoutMs: 4000 })
-          }}
-        />
+        <Text color={color}>{ago(since)} </Text>
+        {left === 0 ? (
+          <Text dimColor>(cache expired)</Text>
+        ) : (
+          [
+            <Text key="bar" dimColor>{bar(since, maxMs)} </Text>,
+            <Button
+              key="handoff"
+              label={isOn ? '->✏️' : '🔁'}
+              plain
+              onPress={async () => {
+                await update($, handoffOn, () => !isOn)
+                $.ui.toast(isOn ? 'auto-handoff off' : `auto-handoff on: writes ${HANDOFF_PATH} 1 min before cache expiry`, { timeoutMs: 4000 })
+              }}
+            />,
+          ]
+        )}
       </Box>
     )
   })

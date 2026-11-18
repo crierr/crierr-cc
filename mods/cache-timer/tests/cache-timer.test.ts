@@ -37,12 +37,13 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
-// The band's cache text, or undefined when it draws nothing of its own.
+// The band's "ago" text (plus the expired note), or undefined when it draws nothing of its own.
 async function band($: Engine) {
   const ui = await $.ui.mount(BAND)
-  const found = await ui.find({ type: 'Text', text: /cache/ })
+  const ago = await ui.find({ type: 'Text', text: /ago/ })
+  const expired = await ui.find({ type: 'Text', text: /expired/ })
   await ui.unmount()
-  return found?.text?.trim()
+  return ago && [ago.text, expired?.text].filter(Boolean).join('').trim()
 }
 
 const start = ($: Engine) => $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true })
@@ -52,11 +53,12 @@ test('default: counts down, then expires, never forks', async ($, on) => {
   const b = bottom(on)
   await start($)
   expect(await band($)).toBeUndefined()
+  await $.prompt.submit({ text: 'hi', asUser: true })
   await step($)
-  await clock.advance(1000)
-  expect(await band($)).toBe('● cache 4:59')
-  await clock.advance(300_000)
-  expect(await band($)).toBe('● cache expired')
+  await clock.advance(60_000)
+  expect(await band($)).toBe('1 minute ago')
+  for (let i = 0; i < 6; i++) await clock.advance(i ? 6000_000 : 5940_000) // advance caps at 10000 ticks
+  expect(await band($)).toBe('600 minutes ago (cache expired)')
   expect(b.forks.length).toBe(0)
 })
 
@@ -64,6 +66,7 @@ test('keepwarm: pings 1 min before, up to the cap', { options: { mode: 'keepwarm
   const clock = mock.clock(on)
   const b = bottom(on)
   await start($)
+  await $.prompt.submit({ text: 'hi', asUser: true })
   await step($)
   await clock.advance(239_000)
   expect(b.forks.length).toBe(0)
@@ -73,7 +76,7 @@ test('keepwarm: pings 1 min before, up to the cap', { options: { mode: 'keepwarm
   expect(b.forks.length).toBe(2)
   await clock.advance(600_000)
   expect(b.forks.length).toBe(2)
-  expect(await band($)).toBe('● cache expired')
+  expect(await band($)).toBe('18 minutes ago (cache expired)')
 })
 
 test('auto-handoff: writes once', { options: { mode: 'auto-handoff' } }, async ($, on) => {
@@ -94,7 +97,7 @@ test('bar: elapsed since input over ttl x max pings', { options: { mode: 'keepwa
   await step($)
   await clock.advance(30 * 60_000) // half of 12 x 5m
   const ui = await $.ui.mount(BAND)
-  expect((await ui.find({ type: 'Text', text: /░/ }))?.text?.trim()).toBe('███░░ 30m')
+  expect((await ui.find({ type: 'Text', text: /░/ }))?.text?.trim()).toBe('███░░')
   await ui.unmount()
 })
 
@@ -102,17 +105,21 @@ test('handoff button: off by default, on writes once', async ($, on) => {
   const clock = mock.clock(on)
   const b = bottom(on)
   await start($)
+  await $.prompt.submit({ text: 'hi', asUser: true })
   await step($)
   await clock.advance(1000)
-  const ui = await $.ui.mount(BAND)
+  let ui = await $.ui.mount(BAND)
   expect((await ui.find({ key: 'handoff' }))?.text).toBe('🔁')
+  await ui.unmount()
   await clock.advance(900_000)
   expect(b.writes.length).toBe(0)
+  await step($) // fresh cache: the button is hidden once expired
+  await clock.advance(1000)
+  ui = await $.ui.mount(BAND)
   await ui.press({ key: 'handoff' })
   expect(b.toasts.at(-1)).toMatch(/^auto-handoff on/)
   expect((await ui.find({ key: 'handoff' }))?.text).toBe('->✏️')
   await ui.unmount()
-  await step($)
   await clock.advance(900_000)
   expect(b.writes.length).toBe(1)
 })
