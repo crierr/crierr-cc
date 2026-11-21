@@ -9,11 +9,14 @@ const TITLE = 'Mermaid'
 const diagram = atom({ plugin: 'mermaid', key: 'diagram' } as const, null as Diagram | null, { shape: 'diagram-1' })
 const view = atom({ plugin: 'mermaid', key: 'view' } as const, null as View | null, { shape: 'view-1' })
 const picture = atom({ plugin: 'mermaid', key: 'picture' } as const, null as Picture | null, { shape: 'picture-1' })
+/** Inline mode's PNGs, one per diagram source, by `hash(source)`. */
+const inline = atom({ plugin: 'mermaid', key: 'inline' } as const, {} as Record<string, Picture>, { shape: 'inline-1' })
 
 const OPENER = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/
 
-/** The last ```mermaid block in markdown, closed or still open; other fences hide what they hold. */
-export function lastMermaid(text: string): Diagram | null {
+/** Every ```mermaid block in markdown, the last maybe still open; other fences hide what they hold. */
+export function mermaidBlocks(text: string): Diagram[] {
+  const all: Diagram[] = []
   let found: Diagram | null = null
   let fence: { close: RegExp; body: string[] | null } | null = null
   for (const line of text.split('\n')) {
@@ -21,7 +24,7 @@ export function lastMermaid(text: string): Diagram | null {
       const [, run = '', lang = ''] = OPENER.exec(line) ?? []
       if (!run) continue
       fence = { close: new RegExp(`^ {0,3}\\${run.charAt(0)}{${run.length},}\\s*$`), body: lang.toLowerCase() === 'mermaid' ? [] : null }
-      if (fence.body) found = { source: '', isDone: false }
+      if (fence.body) all.push((found = { source: '', isDone: false }))
       continue
     }
     if (fence.close.test(line)) {
@@ -32,7 +35,16 @@ export function lastMermaid(text: string): Diagram | null {
       found.source = fence.body.join('\n')
     }
   }
-  return found
+  return all
+}
+
+export const lastMermaid = (text: string): Diagram | null => mermaidBlocks(text).at(-1) ?? null
+
+/** A short stable name for a source (djb2), for its PNG's file and key. */
+export function hash(s: string) {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
+  return h.toString(36)
 }
 
 function draw(source: string) {
@@ -100,7 +112,33 @@ async function sessionFiles($: EngineInterface, sessionId: string) {
 
 async function removeFiles($: EngineInterface, sessionId: string) {
   const { input, output } = await sessionFiles($, sessionId)
-  await $.process.run(['rm', '-f', input, output]).catch(() => undefined)
+  const pngs = Object.values(await read($, inline)).flatMap(p => ('file' in p ? [p.file] : []))
+  await $.process.run(['rm', '-f', input, output, ...pngs]).catch(() => undefined)
+}
+
+/** Runs mmdc on `source` into `output`: the picture, or why there is none. */
+async function mmdcPicture($: EngineInterface, mmdc: string, source: string, look: Scheme, input: string, output: string): Promise<Picture> {
+  try {
+    await $.fs.write(input, source)
+    const run = await $.process.run([mmdc, '-i', input, '-o', output, '-t', look === 'dark' ? 'dark' : 'default', '-b', 'transparent', '-s', '2', '-q'], { timeoutMs: 60_000 })
+    if (run.exitCode !== 0) throw new Error(run.stderr.trim().split('\n').pop() || `${mmdc} exited ${run.exitCode}`)
+    const { base64 } = await $.fs.read(output, { as: 'bytes', offset: 16, length: 8 })
+    return { source, scheme: look, file: output, ...pngSize(base64), generation: Date.now() }
+  } catch (err) {
+    return { source, scheme: look, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Makes the PNG of one inline diagram, unless it has one (or an error) already. */
+function makeInline($: EngineInterface, mmdc: string, imageTheme: string, source: string) {
+  const key = hash(source)
+  return (queue = queue.then(async () => {
+    // shortcut: a theme change keeps the PNGs already made; new diagrams take the new theme.
+    if ((await read($, inline))[key]?.source === source) return
+    const { input, output } = await sessionFiles($, await $.session.id())
+    const made = await mmdcPicture($, mmdc, source, await scheme($, imageTheme), input, output.replace(/\.png$/, `-${key}.png`))
+    await update($, inline, all => ({ ...all, [key]: made }))
+  }))
 }
 
 /** Makes the PNG of the finished diagram when the view is image and it has none yet for this scheme. */
@@ -111,23 +149,15 @@ function makePicture($: EngineInterface, mmdc: string, defaultView: View, imageT
     const look = await scheme($, imageTheme)
     const had = await read($, picture)
     if (had?.source === d.source && had.scheme === look) return
-    const source = d.source
-    try {
-      const { input, output } = await sessionFiles($, await $.session.id())
-      await $.fs.write(input, source)
-      const run = await $.process.run([mmdc, '-i', input, '-o', output, '-t', look === 'dark' ? 'dark' : 'default', '-b', 'transparent', '-s', '2', '-q'], { timeoutMs: 60_000 })
-      if (run.exitCode !== 0) throw new Error(run.stderr.trim().split('\n').pop() || `${mmdc} exited ${run.exitCode}`)
-      const { base64 } = await $.fs.read(output, { as: 'bytes', offset: 16, length: 8 })
-      const made: Picture = { source, scheme: look, file: output, ...pngSize(base64), generation: Date.now() }
-      await update($, picture, () => made)
-    } catch (err) {
-      await update($, picture, () => ({ source, scheme: look, error: err instanceof Error ? err.message : String(err) }))
-    }
+    const { input, output } = await sessionFiles($, await $.session.id())
+    const made = await mmdcPicture($, mmdc, d.source, look, input, output)
+    await update($, picture, () => made)
   }))
 }
 
 export const register: Register = (on, options) => {
-  const autoOpen = options.autoOpen !== false
+  const isInline = options.placement !== 'pane'
+  const autoOpen = options.autoOpen !== false && !isInline
   const defaultView: View = options.view === 'image' ? 'image' : 'text'
   const mmdc = String(options.mmdc || 'mmdc')
   const imageTheme = String(options.imageTheme ?? 'auto')
@@ -175,9 +205,46 @@ export const register: Register = (on, options) => {
       if (chunk.text.includes('\n')) await show(text.slice(0, text.lastIndexOf('\n') + 1))
     }
     await show(text)
-    void makePicture($, mmdc, defaultView, imageTheme)
+    // Inline mode draws its own PNGs; the pane's is only worth making while the pane shows.
+    if (!isInline || (await $.ui.panes()).some(p => p.id === PANE && p.isShown)) void makePicture($, mmdc, defaultView, imageTheme)
     return stream.result
   })
+
+  // Inline: each finished diagram drawn under the reply block that holds it; the stored reply keeps its source.
+  if (isInline)
+    on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+      const row = await next(e)
+      const done = mermaidBlocks(e.props.text).filter(d => d.isDone && d.source.trim())
+      if (!done.length) return row
+      const { Box, Text } = $.ui.resolve(e)
+      const cols = Math.max(20, (e.viewport?.columns ?? 80) - 2)
+      const isImage = e.surface === 'terminal' && ((await read($, view)) ?? defaultView) === 'image'
+      const pics = isImage ? await read($, inline) : {}
+      const drawn = done.map((d, i) => {
+        const pic = pics[hash(d.source)]
+        if (isImage && pic && 'file' in pic) {
+          const { Image } = $.ui.resolve(e)
+          const { columns, rows } = cells(pic.width, pic.height, cols, 30)
+          return <Image key={`d${i}`} source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
+        }
+        if (isImage && !pic) void makeInline($, mmdc, imageTheme, d.source)
+        const { art } = fit(d.source, cols)
+        return (
+          <Box flexDirection="column">
+            {art && art.width <= cols ? art.plain.map(line => <Text>{line || ' '}</Text>) : <Text dimColor>{art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}
+            {isImage && <Text dimColor>{pic && 'error' in pic ? `No image: ${pic.error}` : 'Making the image…'}</Text>}
+          </Box>
+        )
+      })
+      return (
+        <Box flexDirection="column">
+          {row}
+          <Box flexDirection="column" paddingLeft={2} marginTop={1} gap={1}>
+            {drawn}
+          </Box>
+        </Box>
+      )
+    })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)

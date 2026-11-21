@@ -10,6 +10,8 @@ const PANE = {
   props: { title: 'Mermaid', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+const PANE_MODE = { options: { placement: 'pane' } }
+
 const REPLY = ['Here:', '```mermaid', 'flowchart LR', '  A[Start] --> B[End]', '```', 'Done.', '']
 
 test('finds the last mermaid block, open or closed, skipping other fences', async () => {
@@ -45,7 +47,7 @@ test('/mermaid opens the pane, and closes it when it is showing', async ($, on) 
   expect(open.has('mermaid')).toBe(false)
 })
 
-test('a streamed reply draws its diagram in the pane, on every surface', async ($, on) => {
+test('a streamed reply draws its diagram in the pane, on every surface', PANE_MODE, async ($, on) => {
   let opened = 0
   on('ui.open', () => { opened++; return { value: { isPlaced: true } } })
   on('turn.step', async function* (_$, e) {
@@ -65,7 +67,7 @@ test('a streamed reply draws its diagram in the pane, on every surface', async (
   }
 })
 
-test('with autoOpen off, a streamed diagram is kept but the pane stays shut', { options: { autoOpen: false } }, async ($, on) => {
+test('with autoOpen off, a streamed diagram is kept but the pane stays shut', { options: { placement: 'pane', autoOpen: false } }, async ($, on) => {
   let opened = 0
   on('ui.open', () => { opened++; return { value: { isPlaced: true } } })
   on('turn.step', async function* (_$, e) {
@@ -79,7 +81,7 @@ test('with autoOpen off, a streamed diagram is kept but the pane stays shut', { 
   await ui.unmount()
 })
 
-test('a diagram wider than the pane shows its source and says so', async ($, on) => {
+test('a diagram wider than the pane shows its source and says so', PANE_MODE, async ($, on) => {
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('turn.step', async function* (_$, e) {
     yield { kind: 'text', index: 0, text: REPLY.join('\n') } as const
@@ -128,7 +130,7 @@ const stream = async ($: Engine) => {
   await settle()
 }
 
-test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { placement: 'pane', view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
   const { argv, writes } = imageWorld(on)
   await stream($)
   expect(writes).toEqual(['/tmp-x/claude-mermaid/s1.mmd'])
@@ -143,7 +145,7 @@ test('image view: a finished diagram becomes a PNG drawn in the pane', { options
   await desk.unmount()
 })
 
-test('the button switches text to image, making the picture then', async ($, on) => {
+test('the button switches text to image, making the picture then', PANE_MODE, async ($, on) => {
   const { argv } = imageWorld(on)
   await stream($)
   expect(argv.length).toBe(0)
@@ -156,7 +158,7 @@ test('the button switches text to image, making the picture then', async ($, on)
   await ui.unmount()
 })
 
-test('an mmdc failure shows the box art and why', { options: { view: 'image' } }, async ($, on) => {
+test('an mmdc failure shows the box art and why', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
   imageWorld(on, { exitCode: 1, stderr: 'Error: no browser' })
   await stream($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -167,31 +169,66 @@ test('an mmdc failure shows the box art and why', { options: { view: 'image' } }
 
 const themeArg = (argv: string[][]) => argv[0]?.[argv[0].indexOf('-t') + 1]
 
-test('image theme follows Claude Code, then macOS when that is auto', { options: { view: 'image' } }, async ($, on) => {
+test('image theme follows Claude Code, then macOS when that is auto', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'light-daltonized')
   await stream($)
   expect(themeArg(argv)).toBe('default')
 })
 
-test('theme auto with macOS in light mode draws light', { options: { view: 'image' } }, async ($, on) => {
+test('theme auto with macOS in light mode draws light', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', '')
   await stream($)
   expect(themeArg(argv)).toBe('default')
 })
 
-test('theme auto with macOS in dark mode draws dark', { options: { view: 'image' } }, async ($, on) => {
+test('theme auto with macOS in dark mode draws dark', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', 'Dark\n')
   await stream($)
   expect(themeArg(argv)).toBe('dark')
 })
 
-test('the Image theme setting overrides', { options: { view: 'image', imageTheme: 'light' } }, async ($, on) => {
+test('the Image theme setting overrides', { options: { placement: 'pane', view: 'image', imageTheme: 'light' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'dark')
   await stream($)
   expect(themeArg(argv)).toBe('default')
 })
 
-test("a session's files are its own and go when it ends", async ($, on) => {
+const MESSAGE = {
+  plugin: 'mermaid',
+  component: 'AssistantMessage',
+  requestId: 'msg1',
+  props: { text: REPLY.join('\n'), isFirstOfReply: true },
+} as const
+
+test('inline (the default): box art drawn under the reply, the reply kept; no pane', async ($, on) => {
+  let opened = 0
+  on('ui.open', () => { opened++; return { value: { isPlaced: true } } })
+  on('turn.step', async function* (_$, e) {
+    yield { kind: 'text', index: 0, text: REPLY.join('\n') } as const
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }));
+  expect(opened).toBe(0)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...MESSAGE, surface })
+    expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+    await ui.unmount()
+  }
+  const open = await $.ui.mount({ ...MESSAGE, surface: 'terminal', props: { ...MESSAGE.props, text: REPLY.slice(0, 4).join('\n') } })
+  expect(await open.find({ type: 'Text', text: /Start/ })).toBe(undefined) // still streaming: nothing drawn yet
+  await open.unmount()
+})
+
+test('inline image: one PNG per diagram, drawn under the reply', { options: { view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+  const { argv } = imageWorld(on)
+  const ui = await $.ui.mount({ ...MESSAGE, surface: 'terminal' })
+  await settle()
+  expect(argv[0]?.[4]).toMatch(/^\/tmp-x\/claude-mermaid\/s1-[a-z0-9]+\.png$/)
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  await ui.unmount()
+})
+
+test("a session's files are its own and go when it ends", PANE_MODE, async ($, on) => {
   const { argv } = imageWorld(on)
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await $.session.end({ reason: 'other', sessionId: 's1' } as Parameters<typeof $.session.end>[0])
