@@ -1,0 +1,31 @@
+{
+  "name": "image-inline",
+  "version": "0.1.0",
+  "description": "Shows the images a reply names (local paths, file:// and web URLs) under the reply",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "web": {
+      "type": "string",
+      "title": "Web images",
+      "description": "ask: a Load button under the reply for each web image. always: fetch them as soon as they show up (every URL a reply names is fetched with curl). local only: never fetch.",
+      "default": "ask",
+      "options": [
+        "ask",
+        "always",
+        "local only"
+      ]
+    },
+    "maxRows": {
+      "type": "number",
+      "title": "Image height (rows)",
+      "description": "The tallest an image is drawn, in terminal rows.",
+      "default": 20
+    },
+    "maxImages": {
+      "type": "number",
+      "title": "Images per reply block",
+      "description": "At most this many images under one reply block.",
+      "default": 4
+    }
+  }
+}
