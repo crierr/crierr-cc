@@ -1,7 +1,7 @@
 {
   "name": "cache-timer",
   "version": "0.2.0",
-  "description": "Status-line countdown to prompt cache expiry, with optional keepwarm or auto-handoff",
+  "description": "Countdown to prompt cache expiry above the prompt, with optional keepwarm or auto-handoff",
   "types": "./types/index.d.ts",
   "userConfig": {
     "mode": {
