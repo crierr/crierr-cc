@@ -10,7 +10,7 @@ const PANE = {
   props: { title: 'Mermaid', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-const PANE_MODE = { options: { placement: 'pane' } }
+const PANE_MODE = { options: { placement: 'pane (auto-open)' } }
 
 const REPLY = ['Here:', '```mermaid', 'flowchart LR', '  A[Start] --> B[End]', '```', 'Done.', '']
 
@@ -67,7 +67,7 @@ test('a streamed reply draws its diagram in the pane, on every surface', PANE_MO
   }
 })
 
-test('with autoOpen off, a streamed diagram is kept but the pane stays shut', { options: { placement: 'pane', autoOpen: false } }, async ($, on) => {
+test('pane (/mermaid): a streamed diagram is kept but the pane stays shut', { options: { placement: 'pane (/mermaid)' } }, async ($, on) => {
   let opened = 0
   on('ui.open', () => { opened++; return { value: { isPlaced: true } } })
   on('turn.step', async function* (_$, e) {
@@ -130,7 +130,7 @@ const stream = async ($: Engine) => {
   await settle()
 }
 
-test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { placement: 'pane', view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { placement: 'pane (auto-open)', view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
   const { argv, writes } = imageWorld(on)
   await stream($)
   expect(writes).toEqual(['/tmp-x/claude-mermaid/s1.mmd'])
@@ -158,7 +158,7 @@ test('the button switches text to image, making the picture then', PANE_MODE, as
   await ui.unmount()
 })
 
-test('an mmdc failure shows the box art and why', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
+test('an mmdc failure shows the box art and why', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   imageWorld(on, { exitCode: 1, stderr: 'Error: no browser' })
   await stream($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -169,25 +169,25 @@ test('an mmdc failure shows the box art and why', { options: { placement: 'pane'
 
 const themeArg = (argv: string[][]) => argv[0]?.[argv[0].indexOf('-t') + 1]
 
-test('image theme follows Claude Code, then macOS when that is auto', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
+test('image theme follows Claude Code, then macOS when that is auto', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'light-daltonized')
   await stream($)
   expect(themeArg(argv)).toBe('default')
 })
 
-test('theme auto with macOS in light mode draws light', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
+test('theme auto with macOS in light mode draws light', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', '')
   await stream($)
   expect(themeArg(argv)).toBe('default')
 })
 
-test('theme auto with macOS in dark mode draws dark', { options: { placement: 'pane', view: 'image' } }, async ($, on) => {
+test('theme auto with macOS in dark mode draws dark', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', 'Dark\n')
   await stream($)
   expect(themeArg(argv)).toBe('dark')
 })
 
-test('the Image theme setting overrides', { options: { placement: 'pane', view: 'image', imageTheme: 'light' } }, async ($, on) => {
+test('the Image theme setting overrides', { options: { placement: 'pane (auto-open)', view: 'image', imageTheme: 'light' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'dark')
   await stream($)
   expect(themeArg(argv)).toBe('default')

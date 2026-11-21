@@ -156,8 +156,9 @@ function makePicture($: EngineInterface, mmdc: string, defaultView: View, imageT
 }
 
 export const register: Register = (on, options) => {
-  const isInline = options.placement !== 'pane'
-  const autoOpen = options.autoOpen !== false && !isInline
+  const placement = String(options.placement ?? 'inline')
+  const isInline = !placement.startsWith('pane')
+  const autoOpen = placement === 'pane (auto-open)'
   const defaultView: View = options.view === 'image' ? 'image' : 'text'
   const mmdc = String(options.mmdc || 'mmdc')
   const imageTheme = String(options.imageTheme ?? 'auto')

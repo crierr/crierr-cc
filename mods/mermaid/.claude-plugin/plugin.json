@@ -7,18 +7,13 @@
     "placement": {
       "type": "string",
       "title": "Where diagrams show",
-      "description": "inline: every finished diagram under the reply that holds it (the pane stays shut unless opened with /mermaid). pane: the latest diagram in the Mermaid pane, opened by itself. Both follow View: text or image.",
+      "description": "inline: every finished diagram under the reply that holds it. pane (auto-open): the latest diagram in the Mermaid pane, which opens by itself when a reply streams one. pane (/mermaid): the same pane, opened only with /mermaid. /mermaid opens the pane in every mode. All follow View: text or image.",
       "default": "inline",
       "options": [
         "inline",
-        "pane"
+        "pane (auto-open)",
+        "pane (/mermaid)"
       ]
-    },
-    "autoOpen": {
-      "type": "boolean",
-      "title": "Open the pane on a new diagram",
-      "description": "Open the Mermaid pane by itself when a reply streams a mermaid block. Off: open it with /mermaid.",
-      "default": true
     },
     "view": {
       "type": "string",
