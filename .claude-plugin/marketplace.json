@@ -8,6 +8,11 @@
       "name": "cache-timer",
       "source": "./mods/cache-timer",
       "description": "Countdown to prompt cache expiry above the prompt, with optional keepwarm or auto-handoff"
+    },
+    {
+      "name": "mermaid",
+      "source": "./mods/mermaid",
+      "description": "Draws the latest ```mermaid block of a reply in a pane, live as it streams (lovely-mermaid)"
     }
   ]
 }

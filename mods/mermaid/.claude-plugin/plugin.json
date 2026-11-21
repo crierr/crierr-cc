@@ -1,0 +1,14 @@
+{
+  "name": "mermaid",
+  "version": "0.3.0",
+  "description": "Draws the latest ```mermaid block of a reply in a pane, live as it streams (lovely-mermaid)",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open the pane on a new diagram",
+      "description": "Open the Mermaid pane by itself when a reply streams a mermaid block. Off: open it with /mermaid.",
+      "default": true
+    }
+  }
+}
