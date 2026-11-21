@@ -180,7 +180,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
     const d = await read($, diagram)
     const cols = e.props.bodyColumns
     const hint = <Text dimColor>/mermaid to close</Text>
@@ -234,7 +234,10 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Image key="diagram" source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
-          <Text dimColor>{pic.file}</Text>
+          {/* A file:// hyperlink: Rex's Quick Look reads it even where the path wraps, and a space off the pane's border, which it reads as part of a bare path. */}
+          <Box paddingLeft={1}>
+            <Link href={`file://${encodeURI(pic.file)}`} label={pic.file} />
+          </Box>
           {toggle}
           {hint}
         </Box>

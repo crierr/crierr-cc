@@ -135,7 +135,7 @@ test('image view: a finished diagram becomes a PNG drawn in the pane', { options
   expect(argv[0]?.slice(0, 5)).toEqual(['/bin/mmdc', '-i', '/tmp-x/claude-mermaid/s1.mmd', '-o', '/tmp-x/claude-mermaid/s1.png'])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Image' })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /s1\.png/ }))?.text).toBe('/tmp-x/claude-mermaid/s1.png')
+  expect(await ui.find({ type: 'Link', text: /s1\.png/ })).toMatchObject({ props: { href: 'file:///tmp-x/claude-mermaid/s1.png', label: '/tmp-x/claude-mermaid/s1.png' } })
   expect((await ui.find({ key: 'view' }))?.text).toBe('Show text')
   await ui.unmount()
   const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
