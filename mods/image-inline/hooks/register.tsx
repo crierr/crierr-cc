@@ -8,7 +8,7 @@ const shots = atom({ plugin: 'image-inline', key: 'shots' } as const, {} as Reco
 /** Web images the person pressed Load on, by `hash(target)`. */
 const allowed = atom({ plugin: 'image-inline', key: 'allowed' } as const, {} as Record<string, true>, { shape: 'allowed-1' })
 
-const EXT = String.raw`\.(?:png|jpe?g|gif|webp)`
+const EXT = String.raw`\.(?:png|jpe?g|gif|webp|avif|svg)`
 const MARKDOWN = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g
 const URL_RE = new RegExp(String.raw`\b(?:https?|file)://[^\s<>()\`'"]+?${EXT}(?:\?[^\s<>()\`'"]*[^\s<>()\`'".,;:!?])?(?=[\s<>()\`'".,;:!?]|$)`, 'gi')
 const PATH_RE = new RegExp(String.raw`(?:^|[\s(\`'"])((?:~|\.{1,2})?/?(?:[\w@%+=:,.-]+/)*[\w@%+=:,.-]+${EXT})(?=[\s)\`'".,;:!?]|$)`, 'gim')
@@ -88,7 +88,7 @@ async function readSize($: EngineInterface, file: string) {
   return pngSize(base64)
 }
 
-/** sips (macOS) turns JPEG, GIF and WebP into PNG. */
+/** sips (macOS) turns JPEG, GIF, WebP, AVIF and SVG into PNG; an SVG at its own size, which is all sips draws it at. */
 async function toPng($: EngineInterface, from: string, to: string) {
   // shortcut: sips is macOS only; elsewhere only PNG files show. Add ImageMagick when that matters.
   const run = await $.process.run(['sips', '-s', 'format', 'png', from, '--out', to], { timeoutMs: 30_000 })

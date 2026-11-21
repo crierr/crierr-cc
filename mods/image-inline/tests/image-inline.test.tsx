@@ -16,6 +16,7 @@ test('finds markdown images, URLs and bare paths, once each, outside fenced code
     'Not images: notes.txt, image.pngx, http://example.com/page',
   ].join('\n')
   expect(findImages(text)).toEqual(['out/chart.png', 'https://example.com/a/b.jpg?x=1', '/tmp/shot.webp', '~/Desktop/pic.GIF', './logo.png'])
+  expect(findImages('logo.svg, photo.AVIF and icon.svgz')).toEqual(['logo.svg', 'photo.AVIF'])
   expect(findImages('a.png then ![b](b.png) then https://x.io/c.png')).toEqual(['a.png', 'b.png', 'https://x.io/c.png'])
   expect(findImages('file:///Users/me/My%20Pic.png')).toEqual(['file:///Users/me/My%20Pic.png'])
 })
@@ -59,6 +60,15 @@ test('a local PNG named in a reply is drawn under it; a missing one draws nothin
   expect(img?.props).toMatchObject({ source: { file: '/proj/out/chart.png', format: 'png' } })
   expect((await ui.find({ type: 'Text', text: /gone\.png/ }))).toBe(undefined)
   expect(argv.some(a => a[0] === 'sips' || a[0] === 'curl')).toBe(false)
+  await ui.unmount()
+})
+
+test('an SVG is turned into a PNG with sips too', async ($, on) => {
+  const { argv } = world(on, { '/proj/logo.svg': btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>') })
+  const ui = await $.ui.mount({ ...reply('See logo.svg'), surface: 'terminal' })
+  await settle()
+  expect(argv.find(a => a[0] === 'sips')?.slice(0, 5)).toEqual(['sips', '-s', 'format', 'png', '/proj/logo.svg'])
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
   await ui.unmount()
 })
 
