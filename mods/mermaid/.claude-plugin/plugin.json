@@ -1,6 +1,6 @@
 {
   "name": "mermaid",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Draws the latest ```mermaid block of a reply in a pane, live as it streams (lovely-mermaid)",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -9,6 +9,33 @@
       "title": "Open the pane on a new diagram",
       "description": "Open the Mermaid pane by itself when a reply streams a mermaid block. Off: open it with /mermaid.",
       "default": true
+    },
+    "view": {
+      "type": "string",
+      "title": "Pane view",
+      "description": "text: Unicode box art. image: a PNG made by mermaid-cli (mmdc), drawn with the kitty graphics protocol; box art while the diagram streams. The pane button switches for the session.",
+      "default": "text",
+      "options": [
+        "text",
+        "image"
+      ]
+    },
+    "mmdc": {
+      "type": "string",
+      "title": "mermaid-cli command",
+      "description": "The mmdc executable for image view (npm i -g @mermaid-js/mermaid-cli).",
+      "default": "mmdc"
+    },
+    "imageTheme": {
+      "type": "string",
+      "title": "Image theme",
+      "description": "auto: dark or light as Claude Code's theme setting says; when that is auto too, as macOS's appearance is. dark / light: always that.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "dark",
+        "light"
+      ]
     }
   }
 }

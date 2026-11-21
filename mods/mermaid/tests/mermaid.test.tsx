@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { fit, lastMermaid } from '../hooks/register'
+import type { Engine } from 'claude-code/testing'
+import type { On } from 'claude-code'
+import { cells, fit, lastMermaid, pngSize } from '../hooks/register'
 
 const PANE = {
   plugin: 'mermaid',
@@ -87,4 +89,111 @@ test('a diagram wider than the pane shows its source and says so', async ($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns: 5 } })
   expect((await ui.find({ type: 'Text', text: /widen the pane/ }))?.text).toContain('columns wide')
   await ui.unmount()
+})
+
+// 640 by 480, as a PNG's IHDR holds them at bytes 16 to 24.
+const SIZE = btoa(String.fromCharCode(0, 0, 2, 128, 0, 0, 1, 224))
+
+test('reads a PNG size and fits it to the pane', async () => {
+  expect(pngSize(SIZE)).toEqual({ width: 640, height: 480 })
+  expect(cells(800, 400, 80, 100)).toEqual({ columns: 80, rows: 20 })
+  expect(cells(400, 800, 80, 20)).toEqual({ columns: 20, rows: 20 })
+})
+
+function imageWorld(on: On, run = { exitCode: 0, stderr: '' }, theme = 'dark', appearance = '') {
+  const argv: string[][] = []
+  const writes: string[] = []
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('env.get', (_$, e) => ({ value: e.name === 'TMPDIR' ? '/tmp-x/' : undefined }))
+  on('session.id', () => ({ value: 's1' }))
+  on('fs.write', (_$, e) => { writes.push(e.path); return { value: undefined } })
+  on('config.list', () => ({ value: [{ key: 'theme', label: 'Theme', kind: 'choice', value: theme, provider: { kind: 'engine' }, isLocked: false }] as never }))
+  on('process.run', (_$, e) => {
+    if (e.argv[0] === 'defaults') return { value: { exitCode: appearance ? 0 : 1, stdout: appearance, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    argv.push([...e.argv])
+    return { value: { ...run, stdout: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('fs.read', () => ({ value: { base64: SIZE } }))
+  on('turn.step', async function* (_$, e) {
+    yield { kind: 'text', index: 0, text: REPLY.join('\n') } as const
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  return { argv, writes }
+}
+
+// The picture is made after the hook returns: let its queued work run out.
+const settle = async () => { for (let i = 0; i < 500; i++) await null }
+const stream = async ($: Engine) => {
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }));
+  await settle()
+}
+
+test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+  const { argv, writes } = imageWorld(on)
+  await stream($)
+  expect(writes).toEqual(['/tmp-x/claude-mermaid/s1.mmd'])
+  expect(argv[0]?.slice(0, 5)).toEqual(['/bin/mmdc', '-i', '/tmp-x/claude-mermaid/s1.mmd', '-o', '/tmp-x/claude-mermaid/s1.png'])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /s1\.png/ }))?.text).toBe('/tmp-x/claude-mermaid/s1.png')
+  expect((await ui.find({ key: 'view' }))?.text).toBe('Show text')
+  await ui.unmount()
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await desk.find({ key: 'view' })).toBe(undefined)
+  await desk.unmount()
+})
+
+test('the button switches text to image, making the picture then', async ($, on) => {
+  const { argv } = imageWorld(on)
+  await stream($)
+  expect(argv.length).toBe(0)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'view' }))?.text).toBe('Show image')
+  await ui.press({ key: 'view' })
+  await settle()
+  expect(argv.length).toBe(1)
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an mmdc failure shows the box art and why', { options: { view: 'image' } }, async ($, on) => {
+  imageWorld(on, { exitCode: 1, stderr: 'Error: no browser' })
+  await stream($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /No image/ }))?.text).toBe('No image: Error: no browser')
+  expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+  await ui.unmount()
+})
+
+const themeArg = (argv: string[][]) => argv[0]?.[argv[0].indexOf('-t') + 1]
+
+test('image theme follows Claude Code, then macOS when that is auto', { options: { view: 'image' } }, async ($, on) => {
+  const { argv } = imageWorld(on, undefined, 'light-daltonized')
+  await stream($)
+  expect(themeArg(argv)).toBe('default')
+})
+
+test('theme auto with macOS in light mode draws light', { options: { view: 'image' } }, async ($, on) => {
+  const { argv } = imageWorld(on, undefined, 'auto', '')
+  await stream($)
+  expect(themeArg(argv)).toBe('default')
+})
+
+test('theme auto with macOS in dark mode draws dark', { options: { view: 'image' } }, async ($, on) => {
+  const { argv } = imageWorld(on, undefined, 'auto', 'Dark\n')
+  await stream($)
+  expect(themeArg(argv)).toBe('dark')
+})
+
+test('the Image theme setting overrides', { options: { view: 'image', imageTheme: 'light' } }, async ($, on) => {
+  const { argv } = imageWorld(on, undefined, 'dark')
+  await stream($)
+  expect(themeArg(argv)).toBe('default')
+})
+
+test("a session's files are its own and go when it ends", async ($, on) => {
+  const { argv } = imageWorld(on)
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  await $.session.end({ reason: 'other', sessionId: 's1' } as Parameters<typeof $.session.end>[0])
+  expect(argv).toEqual([['rm', '-f', '/tmp-x/claude-mermaid/s1.mmd', '/tmp-x/claude-mermaid/s1.png']])
 })
