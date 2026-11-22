@@ -172,25 +172,41 @@ const themeArg = (argv: string[][]) => argv[0]?.[argv[0].indexOf('-t') + 1]
 test('image theme follows Claude Code, then macOS when that is auto', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'light-daltonized')
   await stream($)
-  expect(themeArg(argv)).toBe('default')
+  expect(themeArg(argv)).toBe('redux-color')
 })
 
 test('theme auto with macOS in light mode draws light', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', '')
   await stream($)
-  expect(themeArg(argv)).toBe('default')
+  expect(themeArg(argv)).toBe('redux-color')
 })
 
 test('theme auto with macOS in dark mode draws dark', { options: { placement: 'pane (auto-open)', view: 'image' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'auto', 'Dark\n')
   await stream($)
-  expect(themeArg(argv)).toBe('dark')
+  expect(themeArg(argv)).toBe('redux-dark-color')
 })
 
-test('the Image theme setting overrides', { options: { placement: 'pane (auto-open)', view: 'image', imageTheme: 'light' } }, async ($, on) => {
+test('auto switch off: the Image theme setting overrides', { options: { placement: 'pane (auto-open)', view: 'image', autoSwitch: false, theme: 'forest' } }, async ($, on) => {
   const { argv } = imageWorld(on, undefined, 'dark')
   await stream($)
-  expect(themeArg(argv)).toBe('default')
+  expect(themeArg(argv)).toBe('forest')
+})
+
+test('auto switch on: dark draws the Image dark theme', { options: { placement: 'pane (auto-open)', view: 'image', darkTheme: 'neo-dark' } }, async ($, on) => {
+  const { argv } = imageWorld(on, undefined, 'dark')
+  await stream($)
+  expect(themeArg(argv)).toBe('neo-dark')
+})
+
+test('/config hides Image theme while auto switch is on, the light and dark ones while it is off', async ($, on) => {
+  on('config.set', (_$, e) => ({ value: e.value }))
+  on('config.describe', (_$, e) => ({ label: e.label, description: e.description, isHidden: e.isHidden }))
+  const row = (key: string) => ({ key, label: key, isHidden: false, provider: { plugin: 'mermaid' } }) as never
+  const hidden = async (key: string) => (await $.config.describe(row(key))).isHidden
+  expect([await hidden('mermaid.theme'), await hidden('mermaid.lightTheme'), await hidden('mermaid.darkTheme')]).toEqual([true, false, false])
+  await $.config.set({ key: 'mermaid.autoSwitch', value: false } as never)
+  expect([await hidden('mermaid.theme'), await hidden('mermaid.lightTheme'), await hidden('mermaid.darkTheme')]).toEqual([false, true, true])
 })
 
 const MESSAGE = {

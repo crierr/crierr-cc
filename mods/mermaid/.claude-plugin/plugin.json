@@ -31,15 +31,54 @@
       "description": "The mmdc executable for image view (npm i -g @mermaid-js/mermaid-cli).",
       "default": "mmdc"
     },
-    "imageTheme": {
+    "autoSwitch": {
+      "type": "boolean",
+      "title": "Image theme: auto switch",
+      "description": "on: the light or dark theme below, as Claude Code's theme says; when that is auto, as macOS's appearance is. off: always Image theme.",
+      "default": true
+    },
+    "lightTheme": {
+      "type": "string",
+      "title": "Image light theme",
+      "description": "The mermaid theme for light appearance, when auto switch is on.",
+      "default": "redux-color",
+      "options": [
+        "default",
+        "forest",
+        "neutral",
+        "neo",
+        "redux",
+        "redux-color"
+      ]
+    },
+    "darkTheme": {
+      "type": "string",
+      "title": "Image dark theme",
+      "description": "The mermaid theme for dark appearance, when auto switch is on.",
+      "default": "redux-dark-color",
+      "options": [
+        "dark",
+        "neo-dark",
+        "redux-dark",
+        "redux-dark-color"
+      ]
+    },
+    "theme": {
       "type": "string",
       "title": "Image theme",
-      "description": "auto: dark or light as Claude Code's theme setting says; when that is auto too, as macOS's appearance is. dark / light: always that.",
-      "default": "auto",
+      "description": "The mermaid theme, when auto switch is off.",
+      "default": "default",
       "options": [
-        "auto",
+        "default",
+        "forest",
+        "neutral",
+        "neo",
+        "redux",
+        "redux-color",
         "dark",
-        "light"
+        "neo-dark",
+        "redux-dark",
+        "redux-dark-color"
       ]
     }
   }

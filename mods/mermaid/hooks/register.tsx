@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Diagram, Picture, Scheme, View } from '../types'
+import type { Diagram, Picture, Themes, View } from '../types'
 import { render } from './vendor/lovely-mermaid.js'
 
 const PANE = 'mermaid'
@@ -87,15 +87,15 @@ export function cells(width: number, height: number, cols: number, maxRows: numb
 // mmdc runs headless Chromium (a second or two) and every run writes the same two files: one at a time.
 let queue: Promise<void> = Promise.resolve()
 
-/** Dark or light: the setting, else Claude Code's theme, else (theme auto) macOS's appearance. */
-async function scheme($: EngineInterface, setting: string): Promise<Scheme> {
-  if (setting === 'dark' || setting === 'light') return setting
+/** The mermaid theme: the fixed one, else the light or dark one as Claude Code's theme says, else (theme auto) as macOS's appearance is. */
+async function mermaidTheme($: EngineInterface, t: Themes): Promise<string> {
+  if (!t.autoSwitch) return t.theme
   const theme = String((await $.config.list().catch(() => [])).find(row => row.key === 'theme')?.value ?? '')
-  if (theme.includes('light')) return 'light'
-  if (theme.includes('dark')) return 'dark'
-  // shortcut: macOS only, and it takes the terminal to follow the system; elsewhere dark. Set Image theme to override.
+  if (theme.includes('light')) return t.light
+  if (theme.includes('dark')) return t.dark
+  // shortcut: macOS only, and it takes the terminal to follow the system; elsewhere dark. Turn auto switch off to override.
   const mac = await $.process.run(['defaults', 'read', '-g', 'AppleInterfaceStyle']).catch(() => null)
-  return mac === null ? 'dark' : mac.stdout.trim() === 'Dark' ? 'dark' : 'light'
+  return mac === null || mac.stdout.trim() === 'Dark' ? t.dark : t.light
 }
 
 /** Where the pictures go: throwaway files, so the temp folder, which the OS clears of any a crash leaves. */
@@ -117,38 +117,38 @@ async function removeFiles($: EngineInterface, sessionId: string) {
 }
 
 /** Runs mmdc on `source` into `output`: the picture, or why there is none. */
-async function mmdcPicture($: EngineInterface, mmdc: string, source: string, look: Scheme, input: string, output: string): Promise<Picture> {
+async function mmdcPicture($: EngineInterface, mmdc: string, source: string, look: string, input: string, output: string): Promise<Picture> {
   try {
     await $.fs.write(input, source)
-    const run = await $.process.run([mmdc, '-i', input, '-o', output, '-t', look === 'dark' ? 'dark' : 'default', '-b', 'transparent', '-s', '2', '-q'], { timeoutMs: 60_000 })
+    const run = await $.process.run([mmdc, '-i', input, '-o', output, '-t', look, '-b', 'transparent', '-s', '2', '-q'], { timeoutMs: 60_000 })
     if (run.exitCode !== 0) throw new Error(run.stderr.trim().split('\n').pop() || `${mmdc} exited ${run.exitCode}`)
     const { base64 } = await $.fs.read(output, { as: 'bytes', offset: 16, length: 8 })
-    return { source, scheme: look, file: output, ...pngSize(base64), generation: Date.now() }
+    return { source, theme: look, file: output, ...pngSize(base64), generation: Date.now() }
   } catch (err) {
-    return { source, scheme: look, error: err instanceof Error ? err.message : String(err) }
+    return { source, theme: look, error: err instanceof Error ? err.message : String(err) }
   }
 }
 
 /** Makes the PNG of one inline diagram, unless it has one (or an error) already. */
-function makeInline($: EngineInterface, mmdc: string, imageTheme: string, source: string) {
+function makeInline($: EngineInterface, mmdc: string, themes: Themes, source: string) {
   const key = hash(source)
   return (queue = queue.then(async () => {
     // shortcut: a theme change keeps the PNGs already made; new diagrams take the new theme.
     if ((await read($, inline))[key]?.source === source) return
     const { input, output } = await sessionFiles($, await $.session.id())
-    const made = await mmdcPicture($, mmdc, source, await scheme($, imageTheme), input, output.replace(/\.png$/, `-${key}.png`))
+    const made = await mmdcPicture($, mmdc, source, await mermaidTheme($, themes), input, output.replace(/\.png$/, `-${key}.png`))
     await update($, inline, all => ({ ...all, [key]: made }))
   }))
 }
 
-/** Makes the PNG of the finished diagram when the view is image and it has none yet for this scheme. */
-function makePicture($: EngineInterface, mmdc: string, defaultView: View, imageTheme: string) {
+/** Makes the PNG of the finished diagram when the view is image and it has none yet for this theme. */
+function makePicture($: EngineInterface, mmdc: string, defaultView: View, themes: Themes) {
   return (queue = queue.then(async () => {
     const d = await read($, diagram)
     if (!d?.isDone || ((await read($, view)) ?? defaultView) !== 'image') return
-    const look = await scheme($, imageTheme)
+    const look = await mermaidTheme($, themes)
     const had = await read($, picture)
-    if (had?.source === d.source && had.scheme === look) return
+    if (had?.source === d.source && had.theme === look) return
     const { input, output } = await sessionFiles($, await $.session.id())
     const made = await mmdcPicture($, mmdc, d.source, look, input, output)
     await update($, picture, () => made)
@@ -161,7 +161,24 @@ export const register: Register = (on, options) => {
   const autoOpen = placement === 'pane (auto-open)'
   const defaultView: View = options.view === 'image' ? 'image' : 'text'
   const mmdc = String(options.mmdc || 'mmdc')
-  const imageTheme = String(options.imageTheme ?? 'auto')
+  const themes: Themes = {
+    autoSwitch: options.autoSwitch !== false,
+    light: String(options.lightTheme || 'redux-color'),
+    dark: String(options.darkTheme || 'redux-dark-color'),
+    theme: String(options.theme || 'default'),
+  }
+  // /config shows Image theme only with auto switch off, the light and dark ones only with it on; the toggle redraws the menu.
+  on('config.describe', { key: 'mermaid.theme' }, async ($, e, next) => next({ ...e, isHidden: themes.autoSwitch }))
+  for (const key of ['mermaid.lightTheme', 'mermaid.darkTheme']) on('config.describe', { key }, async ($, e, next) => next({ ...e, isHidden: !themes.autoSwitch }))
+  on('config.set', { key: 'mermaid.autoSwitch' }, async ($, e, next) => {
+    const done = await next(e)
+    if (!done.deny) {
+      themes.autoSwitch = done.value !== false
+      await $.ui.invalidate('config.describe')
+    }
+    return done
+  })
+
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'mermaid', description: 'Open or close the Mermaid diagram pane' })
     return next(e)
@@ -179,7 +196,7 @@ export const register: Register = (on, options) => {
       return { text: 'Mermaid pane closed.' }
     }
     await $.ui.open({ id: PANE, title: TITLE }) // also brings it forward when it's a tab behind another
-    void makePicture($, mmdc, defaultView, imageTheme)
+    void makePicture($, mmdc, defaultView, themes)
     return { text: 'Mermaid pane opened.' }
   })
 
@@ -207,7 +224,7 @@ export const register: Register = (on, options) => {
     }
     await show(text)
     // Inline mode draws its own PNGs; the pane's is only worth making while the pane shows.
-    if (!isInline || (await $.ui.panes()).some(p => p.id === PANE && p.isShown)) void makePicture($, mmdc, defaultView, imageTheme)
+    if (!isInline || (await $.ui.panes()).some(p => p.id === PANE && p.isShown)) void makePicture($, mmdc, defaultView, themes)
     return stream.result
   })
 
@@ -228,7 +245,7 @@ export const register: Register = (on, options) => {
           const { columns, rows } = cells(pic.width, pic.height, cols, 30)
           return <Image key={`d${i}`} source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
         }
-        if (isImage && !pic) void makeInline($, mmdc, imageTheme, d.source)
+        if (isImage && !pic) void makeInline($, mmdc, themes, d.source)
         const { art } = fit(d.source, cols)
         return (
           <Box flexDirection="column">
@@ -293,7 +310,7 @@ export const register: Register = (on, options) => {
         label={mode === 'image' ? 'Show text' : 'Show image'}
         onPress={async () => {
           await update($, view, () => (mode === 'image' ? 'text' : 'image'))
-          void makePicture($, mmdc, defaultView, imageTheme)
+          void makePicture($, mmdc, defaultView, themes)
         }}
       />
     )
