@@ -241,9 +241,14 @@ export const register: Register = (on, options) => {
       const drawn = done.map((d, i) => {
         const pic = pics[hash(d.source)]
         if (isImage && pic && 'file' in pic) {
-          const { Image } = $.ui.resolve(e)
-          const { columns, rows } = cells(pic.width, pic.height, cols, 30)
-          return <Image key={`d${i}`} source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
+          const { Image, Link } = $.ui.resolve(e)
+          const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8))) // 80% of the terminal: the rest for the link, prompt, status line and spinner
+          return (
+            <Box key={`d${i}`} flexDirection="column">
+              <Image source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
+              <Link href={`file://${encodeURI(pic.file)}`}><Text color="suggestion" underline>open image ↗</Text></Link>
+            </Box>
+          )
         }
         if (isImage && !pic) void makeInline($, mmdc, themes, d.source)
         const { art } = fit(d.source, cols)
@@ -321,7 +326,7 @@ export const register: Register = (on, options) => {
           <Image key="diagram" source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
           {/* A file:// hyperlink: Rex's Quick Look reads it even where the path wraps, and a space off the pane's border, which it reads as part of a bare path. */}
           <Box paddingLeft={1}>
-            <Link href={`file://${encodeURI(pic.file)}`} label={pic.file} />
+            <Link href={`file://${encodeURI(pic.file)}`}><Text color="suggestion" underline>open image ↗</Text></Link>
           </Box>
           {toggle}
           {hint}

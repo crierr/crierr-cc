@@ -137,7 +137,7 @@ test('image view: a finished diagram becomes a PNG drawn in the pane', { options
   expect(argv[0]?.slice(0, 5)).toEqual(['/bin/mmdc', '-i', '/tmp-x/claude-mermaid/s1.mmd', '-o', '/tmp-x/claude-mermaid/s1.png'])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Image' })).toBeDefined()
-  expect(await ui.find({ type: 'Link', text: /s1\.png/ })).toMatchObject({ props: { href: 'file:///tmp-x/claude-mermaid/s1.png', label: '/tmp-x/claude-mermaid/s1.png' } })
+  expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: 'file:///tmp-x/claude-mermaid/s1.png' }, children: [{ props: { underline: true }, children: ['open image ↗'] }] })
   expect((await ui.find({ key: 'view' }))?.text).toBe('Show text')
   await ui.unmount()
   const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -241,6 +241,15 @@ test('inline image: one PNG per diagram, drawn under the reply', { options: { vi
   await settle()
   expect(argv[0]?.[4]).toMatch(/^\/tmp-x\/claude-mermaid\/s1-[a-z0-9]+\.png$/)
   expect(await ui.find({ type: 'Image' })).toBeDefined()
+  expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: `file://${argv[0]?.[4]}` }, children: [{ props: { underline: true }, children: ['open image ↗'] }] })
+  await ui.unmount()
+})
+
+test('inline image: no taller than the terminal, less room for the prompt', { options: { view: 'image' } }, async ($, on) => {
+  imageWorld(on)
+  const ui = await $.ui.mount({ ...MESSAGE, surface: 'terminal', viewport: { columns: 80, rows: 20 } })
+  await settle()
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ rows: 16 })
   await ui.unmount()
 })
 
