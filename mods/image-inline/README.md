@@ -1,6 +1,6 @@
 # image-inline
 
-When a reply names an image, the image is drawn under the reply, with its path or URL below it.
+When a reply names an image, the image is drawn under the reply, with an **open image ↗** link to the file or URL below it.
 
 ## Requirements
 

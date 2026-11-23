@@ -58,6 +58,8 @@ test('a local PNG named in a reply is drawn under it; a missing one draws nothin
   await settle()
   const img = await ui.find({ type: 'Image' })
   expect(img?.props).toMatchObject({ source: { file: '/proj/out/chart.png', format: 'png' } })
+  expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: 'file:///proj/out/chart.png' }, children: [{ props: { underline: true }, children: ['open image ↗'] }] })
+  expect((await ui.find({ type: 'Text', text: /chart\.png/ }))).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /gone\.png/ }))).toBe(undefined)
   expect(argv.some(a => a[0] === 'sips' || a[0] === 'curl')).toBe(false)
   await ui.unmount()
@@ -79,6 +81,7 @@ test('a JPEG is turned into a PNG with sips first', async ($, on) => {
   const out = `/tmp-x/claude-image-inline/s1-${hash('~/pic.jpg')}.png`
   expect(argv.find(a => a[0] === 'sips')).toEqual(['sips', '-s', 'format', 'png', '/home/me/pic.jpg', '--out', out])
   expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: out } })
+  expect((await ui.find({ type: 'Link' }))?.props.href).toBe('file:///home/me/pic.jpg')
   await ui.unmount()
 })
 
@@ -93,6 +96,7 @@ test('web images wait for Load by default, then are fetched and drawn', async ($
   await settle()
   expect(argv[1]?.[0]).toBe('curl')
   expect(await ui.find({ type: 'Image' })).toBeDefined()
+  expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://example.com/logo.png')
   await ui.unmount()
 })
 

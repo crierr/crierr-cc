@@ -166,7 +166,7 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'terminal') return row
     const targets = findImages(e.props.text).filter(t => web !== 'local only' || !isWeb(t))
     if (!targets.length) return row
-    const { Box, Text, Button, Image } = $.ui.resolve(e)
+    const { Box, Text, Button, Image, Link } = $.ui.resolve(e)
     const [have, ok] = await Promise.all([read($, shots), read($, allowed)])
     const cols = Math.max(10, (e.viewport?.columns ?? 80) - 4)
     const drawn = []
@@ -203,10 +203,12 @@ export const register: Register = (on, options) => {
         continue
       }
       const { columns, rows } = cells(shot.width, shot.height, cols, maxRows)
+      // The original, not shot.file: a converted or downloaded PNG is deleted when the session ends.
+      const href = isWeb(target) ? target : `file://${encodeURI(await localPath($, target))}`
       drawn.push(
         <Box flexDirection="column">
           <Image key={`img-${key}`} source={{ file: shot.file, format: 'png', generation: shot.generation }} columns={columns} rows={rows} alt={`Image: ${target} (the terminal can't show images here)`} />
-          {label}
+          <Link href={href}><Text color="suggestion" underline>open image ↗</Text></Link>
         </Box>,
       )
     }
