@@ -98,8 +98,11 @@ const SIZE = btoa(String.fromCharCode(0, 0, 2, 128, 0, 0, 1, 224))
 
 test('reads a PNG size and fits it to the pane', async () => {
   expect(pngSize(SIZE)).toEqual({ width: 640, height: 480 })
-  expect(cells(800, 400, 80, 100)).toEqual({ columns: 80, rows: 20 })
-  expect(cells(400, 800, 80, 20)).toEqual({ columns: 20, rows: 20 })
+  expect(cells(800, 400, 80, 100, 1)).toEqual({ columns: 80, rows: 20 })
+  expect(cells(400, 800, 80, 20, 1)).toEqual({ columns: 20, rows: 20 })
+  // density: a small picture keeps its size, a big one still fits the pane
+  expect(cells(320, 160, 80, 100, 16)).toEqual({ columns: 20, rows: 5 })
+  expect(cells(3200, 1600, 80, 100, 16)).toEqual({ columns: 80, rows: 20 })
 })
 
 function imageWorld(on: On, run = { exitCode: 0, stderr: '' }, theme = 'dark', appearance = '') {
@@ -245,7 +248,7 @@ test('inline image: one PNG per diagram, drawn under the reply', { options: { vi
   await ui.unmount()
 })
 
-test('inline image: no taller than the terminal, less room for the prompt', { options: { view: 'image' } }, async ($, on) => {
+test('inline image: no taller than the terminal, less room for the prompt', { options: { view: 'image', density: 1 } }, async ($, on) => {
   imageWorld(on)
   const ui = await $.ui.mount({ ...MESSAGE, surface: 'terminal', viewport: { columns: 80, rows: 20 } })
   await settle()

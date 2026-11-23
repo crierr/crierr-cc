@@ -72,10 +72,10 @@ export function pngSize(base64: string) {
   return { width: u32(0), height: u32(4) }
 }
 
-/** Cells for a picture: the pane's width, or less where its height would pass `maxRows`. */
-export function cells(width: number, height: number, cols: number, maxRows: number) {
+/** Cells for a picture: one column per `density` pixels, at most the pane's width, and less where its height would pass `maxRows`. */
+export function cells(width: number, height: number, cols: number, maxRows: number, density: number) {
   // shortcut: takes a cell as twice as tall as wide; other fonts stretch the picture a little.
-  let columns = Math.min(cols, 255)
+  let columns = Math.max(1, Math.min(cols, 255, Math.ceil(width / density)))
   let rows = Math.max(1, Math.ceil((columns * height) / width / 2))
   if (rows > maxRows) {
     rows = Math.min(maxRows, 255)
@@ -161,6 +161,7 @@ export const register: Register = (on, options) => {
   const autoOpen = placement === 'pane (auto-open)'
   const defaultView: View = options.view === 'image' ? 'image' : 'text'
   const mmdc = String(options.mmdc || 'mmdc')
+  const density = Math.max(1, Number(options.density) || 16)
   const themes: Themes = {
     autoSwitch: options.autoSwitch !== false,
     light: String(options.lightTheme || 'redux-color'),
@@ -242,7 +243,7 @@ export const register: Register = (on, options) => {
         const pic = pics[hash(d.source)]
         if (isImage && pic && 'file' in pic) {
           const { Image, Link } = $.ui.resolve(e)
-          const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8))) // 80% of the terminal: the rest for the link, prompt, status line and spinner
+          const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8)), density) // 80% of the terminal: the rest for the link, prompt, status line and spinner
           return (
             <Box key={`d${i}`} flexDirection="column">
               <Image source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
@@ -320,7 +321,7 @@ export const register: Register = (on, options) => {
       />
     )
     if (pic?.source === d.source && 'file' in pic) {
-      const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, e.props.scroll.bodyRows - 3))
+      const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, e.props.scroll.bodyRows - 3), density)
       return (
         <Box flexDirection="column">
           <Image key="diagram" source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
