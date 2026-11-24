@@ -40,6 +40,40 @@ export function mermaidBlocks(text: string): Diagram[] {
 
 export const lastMermaid = (text: string): Diagram | null => mermaidBlocks(text).at(-1) ?? null
 
+// As image-inline finds image paths: a bare, quoted, backticked or linked path, or a file:// URL.
+const MMD_RE = /(?:^|[\s(`'"])((?:file:\/\/)?(?:~|\.{1,2})?\/?(?:[\w@%+=:,.-]+\/)*[\w@%+=:,.-]+\.(?:mmd|mermaid))(?=[\s)`'".,;:!?]|$)/gim
+
+/** The .mmd and .mermaid files a reply names outside fenced code, in order, once each. */
+export function mmdFiles(text: string): string[] {
+  const prose: string[] = []
+  let fence = ''
+  for (const line of text.split('\n')) {
+    const run = OPENER.exec(line)?.[1]
+    if (fence) {
+      if (run && run[0] === fence[0] && run.length >= fence.length) fence = ''
+    } else if (run) fence = run
+    else prose.push(line)
+  }
+  return [...new Set([...prose.join('\n').matchAll(MMD_RE)].map(m => m[1]!))]
+}
+
+/** A named .mmd file's source, `file://`, `~` and relative paths resolved; null when it can't be read. */
+async function mmdSource($: EngineInterface, target: string) {
+  let p = target
+  if (/^file:\/\//i.test(p)) p = decodeURIComponent(p.replace(/^file:\/\/(localhost)?/i, ''))
+  if (p.startsWith('~/')) p = `${(await $.env.get('HOME')) ?? ''}${p.slice(1)}`
+  if (!p.startsWith('/')) p = `${(await $.session.cwd()).replace(/\/+$/, '')}/${p.replace(/^\.\//, '')}`
+  const source = await $.fs.read(p).catch(() => null)
+  return source?.trim() ? source.trimEnd() : null
+}
+
+/** The diagrams a finished reply shows: its mermaid blocks, then the .mmd files it names. */
+async function replyDiagrams($: EngineInterface, text: string) {
+  const blocks = mermaidBlocks(text).filter(d => d.isDone && d.source.trim()).map(d => d.source.trimEnd())
+  const files = await Promise.all(mmdFiles(text).map(f => mmdSource($, f)))
+  return [...new Set([...blocks, ...files.filter(s => s !== null)])] // a file the reply also quotes in a block is drawn once
+}
+
 /** A short stable name for a source (djb2), for its PNG's file and key. */
 export function hash(s: string) {
   let h = 5381
@@ -224,6 +258,12 @@ export const register: Register = (on, options) => {
       if (chunk.text.includes('\n')) await show(text.slice(0, text.lastIndexOf('\n') + 1))
     }
     await show(text)
+    const file = !lastMermaid(text) && mmdFiles(text).at(-1)
+    const source = file ? await mmdSource($, file) : null
+    if (source) {
+      if (autoOpen) void $.ui.open({ id: PANE, title: TITLE })
+      await update($, diagram, () => ({ source, isDone: true }))
+    }
     // Inline mode draws its own PNGs; the pane's is only worth making while the pane shows.
     if (!isInline || (await $.ui.panes()).some(p => p.id === PANE && p.isShown)) void makePicture($, mmdc, defaultView, themes)
     return stream.result
@@ -233,14 +273,14 @@ export const register: Register = (on, options) => {
   if (isInline)
     on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
       const row = await next(e)
-      const done = mermaidBlocks(e.props.text).filter(d => d.isDone && d.source.trim())
+      const done = await replyDiagrams($, e.props.text)
       if (!done.length) return row
       const { Box, Text } = $.ui.resolve(e)
       const cols = Math.max(20, (e.viewport?.columns ?? 80) - 2)
       const isImage = e.surface === 'terminal' && ((await read($, view)) ?? defaultView) === 'image'
       const pics = isImage ? await read($, inline) : {}
-      const drawn = done.map((d, i) => {
-        const pic = pics[hash(d.source)]
+      const drawn = done.map((source, i) => {
+        const pic = pics[hash(source)]
         if (isImage && pic && 'file' in pic) {
           const { Image, Link } = $.ui.resolve(e)
           const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8)), density) // 80% of the terminal: the rest for the link, prompt, status line and spinner
@@ -251,8 +291,8 @@ export const register: Register = (on, options) => {
             </Box>
           )
         }
-        if (isImage && !pic) void makeInline($, mmdc, themes, d.source)
-        const { art } = fit(d.source, cols)
+        if (isImage && !pic) void makeInline($, mmdc, themes, source)
+        const { art } = fit(source, cols)
         return (
           <Box flexDirection="column">
             {art && art.width <= cols ? art.plain.map(line => <Text>{line || ' '}</Text>) : <Text dimColor>{art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}

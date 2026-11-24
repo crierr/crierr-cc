@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { cells, fit, lastMermaid, pngSize } from '../hooks/register'
+import { cells, fit, lastMermaid, mmdFiles, pngSize } from '../hooks/register'
 
 const PANE = {
   plugin: 'mermaid',
@@ -261,4 +261,38 @@ test("a session's files are its own and go when it ends", PANE_MODE, async ($, o
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await $.session.end({ reason: 'other', sessionId: 's1' } as Parameters<typeof $.session.end>[0])
   expect(argv).toEqual([['rm', '-f', '/tmp-x/claude-mermaid/s1.mmd', '/tmp-x/claude-mermaid/s1.png']])
+})
+
+test('finds the .mmd files a reply names, not those in code fences', async () => {
+  expect(mmdFiles('See docs/flow.mmd and [seq](./seq.mmd), `~/a.mmd`, file:///x/y.mmd, z.mermaid. Again docs/flow.mmd.')).toEqual(['docs/flow.mmd', './seq.mmd', '~/a.mmd', 'file:///x/y.mmd', 'z.mermaid'])
+  expect(mmdFiles('```\ncat flow.mmd\n```\nflow.mmdx notes.md')).toEqual([])
+})
+
+test('inline: a .mmd file the reply names is drawn under it; a missing one is not', async ($, on) => {
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('fs.read', (_$, e) => (e.path === '/proj/docs/flow.mmd' ? { value: 'flowchart LR\n  A[Start] --> B[End]' } : { deny: 'ENOENT' }))
+  const props = (text: string) => ({ ...MESSAGE, surface: 'terminal' as const, props: { ...MESSAGE.props, text } })
+  const ui = await $.ui.mount(props('I wrote docs/flow.mmd.'))
+  expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+  await ui.unmount()
+  const both = await $.ui.mount(props('I wrote docs/flow.mmd:\n\n```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```\n'))
+  expect((await both.findAll({ type: 'Text', text: /Start/ })).length).toBe(1)
+  await both.unmount()
+  const none = await $.ui.mount(props('I wrote docs/gone.mmd.'))
+  expect(await none.find({ type: 'Text', text: /Start/ })).toBe(undefined)
+  await none.unmount()
+})
+
+test('pane: a reply naming a .mmd file shows it in the pane', PANE_MODE, async ($, on) => {
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.cwd', () => ({ value: '/proj' }))
+  on('fs.read', () => ({ value: 'flowchart LR\n  A[Start] --> B[End]' }))
+  on('turn.step', async function* (_$, e) {
+    yield { kind: 'text', index: 0, text: 'Saved to flow.mmd.' } as const
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }));
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+  await ui.unmount()
 })

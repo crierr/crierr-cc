@@ -1,6 +1,6 @@
 # mermaid
 
-Draws each ````mermaid```` block of a reply as a diagram. The reply itself is unchanged: the source stays above the diagram.
+Draws each ````mermaid```` block of a reply as a diagram. The reply itself is unchanged: the source stays above the diagram. A `.mmd` or `.mermaid` file a reply names (`docs/flow.mmd`, `[flow](flow.mmd)`, a `file://` URL) is read and drawn the same way.
 
 ## Requirements
 
