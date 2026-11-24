@@ -83,9 +83,80 @@ async function localPath($: EngineInterface, target: string) {
   return p
 }
 
-async function readSize($: EngineInterface, file: string) {
-  const { base64 } = await $.fs.read(file, { as: 'bytes', offset: 0, length: 24 })
-  return pngSize(base64)
+async function head($: EngineInterface, file: string) {
+  return (await $.fs.read(file, { as: 'bytes', offset: 0, length: 24 })).base64
+}
+
+const readSize = async ($: EngineInterface, file: string) => pngSize(await head($, file))
+
+/** Whether an SVG's text animates: SMIL elements or CSS keyframes. */
+export const isAnimatedSvg = (svg: string) => /<(?:animate|animateTransform|animateMotion|set)\b|@keyframes/i.test(svg)
+
+/** An SVG's loop in ms: its longest SMIL `dur` or CSS animation time, else 2 s; 0.1 to 10 s. */
+export function loopMs(svg: string) {
+  const times = [...svg.matchAll(/\bdur\s*=\s*["']\s*([\d.]+)(ms|s|min)?|animation(?:-duration)?\s*:[^;}"']*?([\d.]+)(ms|s)\b/gi)]
+    .map(m => Number(m[1] ?? m[3]) * ({ ms: 1, s: 1000, min: 60_000 }[(m[2] ?? m[4] ?? 's').toLowerCase() as 'ms'] ?? 1000))
+    .filter(t => t > 0)
+  return Math.min(10_000, Math.max(100, times.length ? Math.max(...times) : 2000))
+}
+
+/** GIF frame delays from `magick identify -format "%T\n"` (1/100 s), in ms; 0 and 1 play as 100 ms, as browsers do. */
+export const gifDelays = (out: string) => out.trim().split('\n').filter(Boolean).map(t => (Number(t) > 1 ? Number(t) * 10 : 100))
+
+const FPS = 20
+const MAX_FRAMES = 60
+const CELL_PX = 480
+
+/** A headless Chrome to draw SVG frames: Playwright's headless shell, else Google Chrome; '' when neither. */
+async function chrome($: EngineInterface) {
+  const find = 'for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" "$1"/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell "$1"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell; do [ -x "$c" ] && last="$c"; done; echo "$last"'
+  return (await $.process.run(['sh', '-c', find, 'sh', (await $.env.get('HOME')) ?? ''])).stdout.trim()
+}
+
+/**
+ * Frames of an animated GIF or SVG, written as `<base>-NNN.png`; null when it is still or cannot be split.
+ * An SVG's still is already at `<base>.png` (sips), which gives its size.
+ */
+async function animate($: EngineInterface, src: string, base: string, isSvg: boolean): Promise<Shot | null> {
+  try {
+    let delays: number[]
+    if (atob(await head($, src)).startsWith('GIF8')) {
+      delays = gifDelays((await $.process.run(['magick', 'identify', '-format', '%T\n', src], { timeoutMs: 30_000 })).stdout)
+      if (delays.length < 2) return null
+      const run = await $.process.run(['magick', src, '-coalesce', `${base}-%03d.png`], { timeoutMs: 60_000 })
+      if (run.exitCode !== 0) return null
+    } else {
+      if (!isSvg) return null
+      const svg = await $.fs.read(src)
+      const size = isAnimatedSvg(svg) && (await readSize($, `${base}.png`))
+      const bin = size && (await chrome($))
+      if (!size || !bin) return null
+      const loop = loopMs(svg)
+      const scale = Math.min(1, CELL_PX / Math.max(size.width, size.height))
+      const [w, h] = [Math.max(1, Math.round(size.width * scale)), Math.max(1, Math.round(size.height * scale))]
+      const want = Math.min(MAX_FRAMES, Math.max(2, Math.round((loop / 1000) * FPS)))
+      const cols = Math.ceil(Math.sqrt(want))
+      const n = cols * Math.ceil(want / cols) // a full grid, so every tile magick cuts is a frame
+      // Every frame in one page and one screenshot: one Chrome launch, not one a frame.
+      // The CSP lets only our script run: the SVG's own scripts, handlers and fetches are blocked.
+      const nonce = hash(`${base}${await $.clock.now()}`)
+      const page = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'nonce-${nonce}'">` +
+        `<style>html,body{margin:0;background:transparent}body{display:flex;flex-wrap:wrap;width:${cols * w}px}body>div{width:${w}px;height:${h}px;overflow:hidden}body>div>svg{width:${w}px;height:${h}px;display:block}</style>` +
+        `<div>${svg}</div>`.repeat(n) +
+        `<script nonce="${nonce}">document.querySelectorAll('body>div>svg').forEach((s,i)=>{const t=i*${loop / n};s.pauseAnimations();s.setCurrentTime(t/1000);s.getAnimations({subtree:true}).forEach(a=>{a.pause();a.currentTime=t})})</script>`
+      await $.fs.write(`${base}.html`, page)
+      const shot = await $.process.run([bin, '--headless', '--disable-gpu', '--hide-scrollbars', '--default-background-color=00000000', `--user-data-dir=${base}.chrome`,
+        `--window-size=${cols * w},${(n / cols) * h}`, `--screenshot=${base}.sheet.png`, `file://${base}.html`], { timeoutMs: 60_000 })
+      const cut = shot.exitCode === 0 && (await $.process.run(['magick', `${base}.sheet.png`, '-crop', `${w}x${h}`, '+repage', `${base}-%03d.png`], { timeoutMs: 30_000 }))
+      await $.process.run(['rm', '-rf', `${base}.html`, `${base}.chrome`, `${base}.sheet.png`])
+      if (!cut || cut.exitCode !== 0) return null
+      delays = Array.from({ length: n }, () => loop / n)
+    }
+    const frames = delays.map((ms, i) => ({ file: `${base}-${String(i).padStart(3, '0')}.png`, ms }))
+    return { ...(await pngFile($, frames[0]!.file)), frames }
+  } catch {
+    return null // no magick, no Chrome, or a file they choke on: the still shows instead
+  }
 }
 
 /** sips (macOS) turns JPEG, GIF, WebP, AVIF and SVG into PNG; an SVG at its own size, which is all sips draws it at. */
@@ -96,6 +167,28 @@ async function toPng($: EngineInterface, from: string, to: string) {
 }
 
 let queue: Promise<void> = Promise.resolve()
+
+/** The Images playing now, by `requestId key`. */
+const playing = new Set<string>()
+
+/** Swaps a drawn Image through its frames, each after its delay, until a blit is refused (it unmounted). */
+function play($: EngineInterface, requestId: string, key: string, frames: { file: string; ms: number }[]) {
+  const id = `${requestId} ${key}`
+  if (playing.has(id)) return
+  playing.add(id)
+  let i = 0
+  let shown = false
+  let misses = 0
+  const step = () => $.clock.after(frames[i]!.ms, async () => {
+    i = (i + 1) % frames.length
+    const r = await $.ui.blit({ requestId, key, source: { file: frames[i]!.file, format: 'png' } }).catch(() => ({ deny: 'failed' }))
+    // Refusals before the first take are the Image not mounted yet; after one, it is gone.
+    if (!r.deny) shown = true
+    else if (shown || ++misses > 20) return void playing.delete(id)
+    step()
+  })
+  step()
+}
 
 /** Prepares one target's PNG once; the result lands in `shots` and redraws the rows that show it. */
 function prepare($: EngineInterface, target: string) {
@@ -119,10 +212,10 @@ async function fromDisk($: EngineInterface, target: string, key: string): Promis
   if (stat.size > MAX_BYTES) return { error: `larger than ${MAX_BYTES / 1024 / 1024} MB` }
   const size = await readSize($, path)
   if (size) return { file: path, ...size, generation: Math.round(stat.mtimeMs), isTemp: false }
-  const out = `${await folder($)}/${await $.session.id()}-${key}.png`
+  const base = `${await folder($)}/${await $.session.id()}-${key}`
   await $.process.run(['mkdir', '-p', await folder($)])
-  await toPng($, path, out)
-  return pngFile($, out)
+  await toPng($, path, `${base}.png`)
+  return (await animate($, path, base, /\.svg$/i.test(path))) ?? pngFile($, `${base}.png`)
 }
 
 async function fromWeb($: EngineInterface, url: string, key: string): Promise<Shot> {
@@ -138,7 +231,9 @@ async function fromWeb($: EngineInterface, url: string, key: string): Promise<Sh
     await $.process.run(['mv', '-f', `${base}.download`, `${base}.png`])
   } else {
     await toPng($, `${base}.download`, `${base}.png`)
+    const moving = await animate($, `${base}.download`, base, type.includes('svg') || /\.svg(?:\?|$)/i.test(url))
     await $.process.run(['rm', '-f', `${base}.download`])
+    if (moving) return moving
   }
   return pngFile($, `${base}.png`)
 }
@@ -155,7 +250,7 @@ export const register: Register = (on, options) => {
   const maxImages = Math.max(1, Number(options.maxImages) || 4)
 
   on('session.end', async ($, e, next) => {
-    const temp = Object.values(await read($, shots)).flatMap(s => ('file' in s && s.isTemp ? [s.file] : []))
+    const temp = Object.values(await read($, shots)).flatMap(s => ('file' in s && s.isTemp ? [s.file, ...(s.frames ?? []).map(f => f.file)] : []))
     if (temp.length) await $.process.run(['rm', '-f', ...temp]).catch(() => undefined)
     return next(e)
   })
@@ -204,6 +299,7 @@ export const register: Register = (on, options) => {
       }
       const { columns, rows } = cells(shot.width, shot.height, cols, maxRows)
       // The original, not shot.file: a converted or downloaded PNG is deleted when the session ends.
+      if (shot.frames) play($, e.requestId, `img-${key}`, shot.frames)
       const href = isWeb(target) ? target : `file://${encodeURI(await localPath($, target))}`
       drawn.push(
         <Box flexDirection="column">

@@ -7,6 +7,7 @@ When a reply names an image, the image is drawn under the reply, with an **open 
 - A terminal with inline graphics: kitty, Ghostty, or iTerm2 3.5+ with fullscreen rendering. Other terminals show a text placeholder instead.
 - **macOS** for anything but PNG: JPEG, GIF, WebP, AVIF and SVG are converted with `sips`, which ships with macOS. On other systems only PNG shows.
 - `curl` for web images (preinstalled on macOS and most Linux).
+- To play animations: ImageMagick (`magick`) for animated GIFs, plus a Chrome for animated SVGs (Google Chrome, or Playwright's `chromium_headless_shell`). Without them the first frame shows, still.
 
 ## Install
 
@@ -34,9 +35,10 @@ Without it, images show only when a reply happens to name one.
 
 - Finds markdown images (`![alt](…)`), `file://` and `http(s)://` URLs, and bare or relative paths (`~/…`, `./…`). Paths in fenced code blocks are skipped.
 - Formats: PNG, JPEG, GIF, WebP, AVIF and SVG. Non-PNG files are converted with macOS `sips`, so on other systems only PNG shows.
+- Animated GIFs play, at their own frame delays. Animated SVGs (SMIL `<animate…>`/`<set>` or CSS `@keyframes`) play too: one headless Chrome run draws up to 60 frames of the loop (its longest duration, 2 s when unknown, 10 s at most). The SVG's own scripts and network loads are blocked while it is drawn.
 - A path that leads to no file draws nothing.
 - Web images wait behind a **Load image from …** button by default. Loading downloads with `curl` (20 MB and 20 s limits).
-- Converted and downloaded files go to `$TMPDIR/claude-image-inline/` and are deleted when the session ends.
+- Converted and downloaded files, and animation frames, go to `$TMPDIR/claude-image-inline/` and are deleted when the session ends.
 
 | Setting | Values | Default |
 | --- | --- | --- |
