@@ -19,6 +19,16 @@ Draws each ````mermaid```` block of a reply as a diagram. The reply itself is un
 
 Change settings with `/config`.
 
+## Let Claude know (opt-in)
+
+Claude doesn't know this mod draws diagrams, so it seldom writes one unprompted. Add this to your user `~/.claude/CLAUDE.md` (every project; `$CLAUDE_CONFIG_DIR/CLAUDE.md` if you set that), or to a project's `CLAUDE.md` or `AGENTS.md` (that project only). Both load together.
+
+```markdown
+This terminal draws diagrams under your replies: a ```mermaid block, or the path of a `.mmd` or `.mermaid` file named outside code blocks. When a picture is clearer than prose, include a ```mermaid block; to keep a diagram in the project, write it to a `.mmd` file and name its path instead.
+```
+
+Without it, diagrams show only when Claude happens to write Mermaid.
+
 ## Usage
 
 **Inline** (the default): each finished diagram is drawn under the reply. Left, image view; right, text view.

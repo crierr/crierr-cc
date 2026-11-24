@@ -18,6 +18,16 @@ When a reply names an image, the image is drawn under the reply, with an **open 
 
 Change settings with `/config`.
 
+## Let Claude know (opt-in)
+
+Claude doesn't know this mod draws images, so it seldom names one for you to see. Add this to your user `~/.claude/CLAUDE.md` (every project; `$CLAUDE_CONFIG_DIR/CLAUDE.md` if you set that), or to a project's `CLAUDE.md` or `AGENTS.md` (that project only). Both load together.
+
+```markdown
+This terminal draws images under your replies: an image file named outside code blocks, as a path, a `file://` or https URL, or `![alt](path)`. When you make or find an image worth seeing, such as a screenshot or a chart, name its path.
+```
+
+Without it, images show only when a reply happens to name one.
+
 ## Usage
 
 ![image-inline: a local JPEG and a web PNG drawn under the reply](../../docs/screenshots/image-inline.png)

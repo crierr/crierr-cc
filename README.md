@@ -42,4 +42,6 @@ Inside Claude Code:
 
 Change a mod's settings with `/config`. Each mod's README lists its settings.
 
+Claude doesn't know that mermaid and image-inline draw what it writes. To have it use them, add a line to your `CLAUDE.md` or `AGENTS.md`: each of those READMEs has a **Let Claude know** section with one to copy.
+
 An image-capable terminal is one with inline graphics: kitty, Ghostty, or iTerm2 3.5+ with fullscreen rendering. Other terminals show a text placeholder instead.
