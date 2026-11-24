@@ -33,6 +33,8 @@ Without it, images show only when a reply happens to name one.
 
 ![image-inline: a local JPEG and a web PNG drawn under the reply](../../docs/screenshots/image-inline.png)
 
+![image-inline: an animated SVG and an animated GIF playing under the reply](../../docs/screenshots/image-inline-animation.gif)
+
 - Finds markdown images (`![alt](…)`), `file://` and `http(s)://` URLs, and bare or relative paths (`~/…`, `./…`). Paths in fenced code blocks are skipped.
 - Formats: PNG, JPEG, GIF, WebP, AVIF and SVG. Non-PNG files are converted with macOS `sips`, so on other systems only PNG shows.
 - Animated GIFs play, at their own frame delays. Animated SVGs (SMIL `<animate…>`/`<set>` or CSS `@keyframes`) play too: one headless Chrome run draws up to 60 frames of the loop (its longest duration, 2 s when unknown, 10 s at most). The SVG's own scripts and network loads are blocked while it is drawn.
