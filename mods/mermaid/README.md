@@ -33,20 +33,15 @@ Without it, diagrams show only when Claude happens to write Mermaid.
 
 ## Usage
 
-**Inline** (the default): each finished diagram is drawn where its block was (in the desktop and other apps, under the reply). Left, image view; right, text view.
+Each finished diagram is drawn where its block was (in the desktop and other apps, under the reply). Left, image view; right, text view.
 
 ![mermaid inline: image view on the left, text view on the right](../../docs/screenshots/mermaid-inline.png)
 
-**Pane**: the latest diagram is drawn in a side pane, live while the reply streams. `/mermaid` opens or closes it. The **Show text** / **Show image** button (hotkey `v`) switches views.
-
-![mermaid pane in image view, beside the conversation](../../docs/screenshots/mermaid-pane.png)
-
 | Setting | Values | Default |
 | --- | --- | --- |
-| Where diagrams show | `inline`, `pane (auto-open)`, `pane (/mermaid)` | `inline` |
 | View | `text`: Unicode box art. `image`: a PNG made by mermaid-cli | `text` |
 | mermaid-cli command | path to `mmdc`. A wrapper script must not pass its own `-p`: the mod passes `-p` with `{"pipe": true}` (so Chrome exits with mmdc), and mmdc keeps only the last one | `mmdc` |
-| Image density | PNG pixels per terminal column: lower draws diagrams bigger, higher smaller. Never wider than the pane | `16` |
+| Image density | PNG pixels per terminal column: lower draws diagrams bigger, higher smaller. Never wider than the terminal | `16` |
 | Image theme: auto switch | on: light or dark theme by Claude Code's theme, then macOS appearance. off: Image theme | on |
 | Image light theme | `default`, `forest`, `neutral`, `neo`, `redux`, `redux-color` | `redux-color` |
 | Image dark theme | `dark`, `neo-dark`, `redux-dark`, `redux-dark-color` | `redux-dark-color` |

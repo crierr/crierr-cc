@@ -6,7 +6,7 @@ Mods for [Claude Code](https://claude.com/claude-code): hooks modules that chang
 
 ### [mermaid](mods/mermaid/README.md)
 
-**Diagrams instead of code.** Draws each ````mermaid```` block of a reply as a diagram, under the reply or live in a side pane (`/mermaid`). Text view (Unicode box art) or image view (mermaid-cli).
+**Diagrams instead of code.** Draws each ````mermaid```` block of a reply as a diagram, in its place in the reply. Text view (Unicode box art) or image view (mermaid-cli).
 
 Needs: nothing for text view; [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc`, Node.js) and an image-capable terminal for image view.
 
