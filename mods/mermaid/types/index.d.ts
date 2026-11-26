@@ -7,6 +7,6 @@ export type Picture = { source: string; theme: string; file: string; width: numb
 
 declare module 'claude-code' {
   interface PluginState {
-    mermaid: { diagram: Shaped<Diagram | null>; view: Shaped<View | null>; picture: Shaped<Picture | null>; inline: Shaped<Record<string, Picture>> }
+    mermaid: { inline: Shaped<Record<string, Picture>> }
   }
 }

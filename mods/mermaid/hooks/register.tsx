@@ -4,12 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Diagram, Picture, Themes, View } from '../types'
 import { render } from './vendor/lovely-mermaid.js'
 
-const PANE = 'mermaid'
-const TITLE = 'Mermaid'
-const diagram = atom({ plugin: 'mermaid', key: 'diagram' } as const, null as Diagram | null, { shape: 'diagram-1' })
-const view = atom({ plugin: 'mermaid', key: 'view' } as const, null as View | null, { shape: 'view-1' })
-const picture = atom({ plugin: 'mermaid', key: 'picture' } as const, null as Picture | null, { shape: 'picture-1' })
-/** Inline mode's PNGs, one per diagram source, by `hash(source)`. */
+/** The PNGs, one per diagram source, by `hash(source)`. */
 const inline = atom({ plugin: 'mermaid', key: 'inline' } as const, {} as Record<string, Picture>, { shape: 'inline-1' })
 
 const OPENER = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/
@@ -37,8 +32,6 @@ export function mermaidBlocks(text: string): Diagram[] {
   }
   return all
 }
-
-export const lastMermaid = (text: string): Diagram | null => mermaidBlocks(text).at(-1) ?? null
 
 // As image-inline finds image paths: a bare, quoted, backticked or linked path, or a file:// URL.
 const MMD_RE = /(?:^|[\s(`'"])((?:file:\/\/)?(?:~|\.{1,2})?\/?(?:[\w@%+=:,.-]+\/)*[\w@%+=:,.-]+\.(?:mmd|mermaid))(?=[\s)`'".,;:!?]|$)/gim
@@ -91,7 +84,7 @@ function draw(source: string) {
 
 const SIDEWAYS = /^(\s*(?:flowchart|graph)\s+)(?:LR|RL)\b/m
 
-/** The drawing, turned top-to-bottom when a sideways flowchart is too wide for the pane. */
+/** The drawing, turned top-to-bottom when a sideways flowchart is too wide for the terminal. */
 export function fit(source: string, cols: number) {
   const art = draw(source)
   if (!art || art.width <= cols || !SIDEWAYS.test(source)) return { art, isTurned: false }
@@ -106,7 +99,7 @@ export function pngSize(base64: string) {
   return { width: u32(0), height: u32(4) }
 }
 
-/** Cells for a picture: one column per `density` pixels, at most the pane's width, and less where its height would pass `maxRows`. */
+/** Cells for a picture: one column per `density` pixels, at most the terminal's width, and less where its height would pass `maxRows`. */
 export function cells(width: number, height: number, cols: number, maxRows: number, density: number) {
   // shortcut: takes a cell as twice as tall as wide; other fonts stretch the picture a little.
   let columns = Math.max(1, Math.min(cols, 255, Math.ceil(width / density)))
@@ -145,9 +138,9 @@ async function sessionFiles($: EngineInterface, sessionId: string) {
 }
 
 async function removeFiles($: EngineInterface, sessionId: string) {
-  const { input, output } = await sessionFiles($, sessionId)
+  const { input } = await sessionFiles($, sessionId)
   const pngs = Object.values(await read($, inline)).flatMap(p => ('file' in p ? [p.file] : []))
-  await $.process.run(['rm', '-f', input, output, ...pngs]).catch(() => undefined)
+  await $.process.run(['rm', '-f', input, ...pngs]).catch(() => undefined)
 }
 
 // puppeteer starts Chrome in its own process group, so a SIGKILLed mmdc (the timeout's last resort, or Claude Code going)
@@ -180,20 +173,6 @@ function makeInline($: EngineInterface, mmdc: string, themes: Themes, source: st
   }))
 }
 
-/** Makes the PNG of the finished diagram when the view is image and it has none yet for this theme. */
-function makePicture($: EngineInterface, mmdc: string, defaultView: View, themes: Themes) {
-  return (queue = queue.then(async () => {
-    const d = await read($, diagram)
-    if (!d?.isDone || ((await read($, view)) ?? defaultView) !== 'image') return
-    const look = await mermaidTheme($, themes)
-    const had = await read($, picture)
-    if (had?.source === d.source && had.theme === look) return
-    const { input, output } = await sessionFiles($, await $.session.id())
-    const made = await mmdcPicture($, mmdc, d.source, look, input, output)
-    await update($, picture, () => made)
-  }))
-}
-
 /** Puts a PNG on the clipboard of the machine Claude Code runs on: osascript on macOS, else wl-copy or xclip; the toast says how it went. */
 async function copyImage($: EngineInterface, png: string) {
   // The path goes in as an argument, never into the script's text.
@@ -203,14 +182,9 @@ async function copyImage($: EngineInterface, png: string) {
   $.ui.toast(run.exitCode === 0 ? 'Image copied' : `Couldn't copy the image: ${run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`}`)
 }
 
-/** One diagram's drawing" 2>/dev/null || xclip -selection clipboard -t image/png -i "/** One diagram's drawing"', 'sh', png]
-  const run = await $.process.run(mac).catch(() => $.process.run(linux)).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
-  $.ui.toast(run.exitCode === 0 ? 'Image copied' : `Couldn't copy the image: ${run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`}`)
-}
-
 /** One diagram's drawing: the PNG in image view once made, else box art; null when box art can't be drawn or is too wide. */
-async function drawOne($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0] & { viewport?: { columns: number; rows: number } }, source: string, o: { defaultView: View; density: number; mmdc: string; themes: Themes }) {
-  const { defaultView, density, mmdc, themes } = o
+async function drawOne($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0] & { viewport?: { columns: number; rows: number } }, source: string, o: { view: View; density: number; mmdc: string; themes: Themes }) {
+  const { view, density, mmdc, themes } = o
   const { Box, Text, Button } = $.ui.resolve(e)
   const copyButton = (
     <Button
@@ -227,7 +201,7 @@ async function drawOne($: EngineInterface, e: Parameters<EngineInterface['ui']['
     </Button>
   )
   const cols = Math.max(20, (e.viewport?.columns ?? 80) - 2)
-  const isImage = e.surface === 'terminal' && ((await read($, view)) ?? defaultView) === 'image'
+  const isImage = e.surface === 'terminal' && view === 'image'
   const pic = isImage ? (await read($, inline))[hash(source)] : undefined
   if (pic && 'file' in pic && e.surface === 'terminal') {
     const file = pic.file
@@ -277,10 +251,7 @@ async function drawOne($: EngineInterface, e: Parameters<EngineInterface['ui']['
 }
 
 export const register: Register = (on, options) => {
-  const placement = String(options.placement ?? 'inline')
-  const isInline = !placement.startsWith('pane')
-  const autoOpen = placement === 'pane (auto-open)'
-  const defaultView: View = options.view === 'image' ? 'image' : 'text'
+  const view: View = options.view === 'image' ? 'image' : 'text'
   const mmdc = String(options.mmdc || 'mmdc')
   const density = Math.max(1, Number(options.density) || 16)
   const themes: Themes = {
@@ -301,168 +272,37 @@ export const register: Register = (on, options) => {
     return done
   })
 
-  on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'mermaid', description: 'Open or close the Mermaid diagram pane' })
-    return next(e)
-  })
-
   on('session.end', async ($, e, next) => {
     await removeFiles($, e.sessionId) // the ending one's: after /clear the process goes on under another id
     return next(e)
   })
 
-  on('command.run', { command: 'mermaid' }, async $ => {
-    const pane = (await $.ui.panes()).find(p => p.id === PANE)
-    if (pane?.isShown) {
-      await $.ui.close({ id: PANE })
-      return { text: 'Mermaid pane closed.' }
-    }
-    await $.ui.open({ id: PANE, title: TITLE }) // also brings it forward when it's a tab behind another
-    void makePicture($, mmdc, defaultView, themes)
-    return { text: 'Mermaid pane opened.' }
+  const drawing = { view, density, mmdc, themes }
+  // Terminal: a closed mermaid fence draws its diagram in its own place, the source hidden; one it can't draw shows its source.
+  on('ui.render', { component: 'CodeBlock' }, async ($, e, next) => {
+    if (e.props.language !== 'mermaid') return next(e)
+    const { Text } = $.ui.resolve(e)
+    if (!e.props.isClosed) return <Text dimColor>Drawing diagram…</Text>
+    const source = e.props.source.trimEnd()
+    if (!source.trim()) return next(e)
+    return (await drawOne($, e, source, drawing)) ?? next(e)
   })
 
-  on('turn.step', async function* ($, e, next) {
-    const stream = next(e)
-    if (e.agentId !== undefined) return yield* stream // a subagent's replies aren't shown to the person
-    let text = ''
-    let block = -1
-    let shown = ''
-    const show = async (upTo: string) => {
-      const d = lastMermaid(upTo)
-      if (!d || `${d.isDone}${d.source}` === shown) return
-      if (!shown && autoOpen) void $.ui.open({ id: PANE, title: TITLE })
-      shown = `${d.isDone}${d.source}`
-      await update($, diagram, () => d)
-    }
-    for await (const chunk of stream) {
-      yield chunk
-      if (chunk.kind !== 'text') continue
-      if (block !== -1 && chunk.index !== block) text += '\n'
-      block = chunk.index
-      text += chunk.text
-      // Whole lines only: a half-typed statement would flicker in and out.
-      if (chunk.text.includes('\n')) await show(text.slice(0, text.lastIndexOf('\n') + 1))
-    }
-    await show(text)
-    const file = !lastMermaid(text) && mmdFiles(text).at(-1)
-    const source = file ? await mmdSource($, file) : null
-    if (source) {
-      if (autoOpen) void $.ui.open({ id: PANE, title: TITLE })
-      await update($, diagram, () => ({ source, isDone: true }))
-    }
-    // Inline mode draws its own PNGs; the pane's is only worth making while the pane shows.
-    if (!isInline || (await $.ui.panes()).some(p => p.id === PANE && p.isShown)) void makePicture($, mmdc, defaultView, themes)
-    return stream.result
-  })
-
-  const drawing = { defaultView, density, mmdc, themes }
-  // Inline, terminal: a closed mermaid fence draws its diagram in its own place, the source hidden; one it can't draw shows its source.
-  if (isInline)
-    on('ui.render', { component: 'CodeBlock' }, async ($, e, next) => {
-      if (e.props.language !== 'mermaid') return next(e)
-      const { Text } = $.ui.resolve(e)
-      if (!e.props.isClosed) return <Text dimColor>Drawing diagram…</Text>
-      const source = e.props.source.trimEnd()
-      if (!source.trim()) return next(e)
-      return (await drawOne($, e, source, drawing)) ?? next(e)
-    })
-
-  // Inline: the .mmd files a reply names drawn under its block (and, off the terminal, where CodeBlock isn't raised, its mermaid blocks); the stored reply keeps its source.
-  if (isInline)
-    on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-      const row = await next(e)
-      const all = await replyDiagrams($, e.props.text)
-      const inPlace = new Set(e.surface === 'terminal' ? mermaidBlocks(e.props.text).map(d => d.source.trimEnd()) : [])
-      const done = all.filter(s => !inPlace.has(s))
-      if (!done.length) return row
-      const { Box, Text } = $.ui.resolve(e)
-      const drawn = await Promise.all(done.map(async (source, i) => <Box key={`d${i}`}>{(await drawOne($, e, source, drawing)) ?? <Text dimColor>{fit(source, 9999).art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}</Box>))
-      return (
-        <Box flexDirection="column">
-          {row}
-          <Box flexDirection="column" paddingLeft={2} marginTop={1} gap={1}>
-            {drawn}
-          </Box>
-        </Box>
-      )
-    })
-
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
-    const d = await read($, diagram)
-    const cols = e.props.bodyColumns
-    const hint = <Text dimColor>/mermaid to close</Text>
-    if (!d)
-      return (
-        <Box flexDirection="column">
-          <Text dimColor>No Mermaid diagram yet.</Text>
-          {hint}
-        </Box>
-      )
-
-    const { art, isTurned } = fit(d.source, cols)
-    const fits = art !== null && art.width <= cols
-    const text = (
-      <Box flexDirection="column">
-        {fits ? art.plain.map(line => <Text>{line || ' '}</Text>) : <Text>{d.source}</Text>}
-        {!fits && (
-          <Text dimColor>
-            {art ? `Diagram is ${art.width} columns wide, the pane ${cols}: widen the pane to draw it.` : d.isDone ? "Can't draw this diagram." : 'Waiting for the diagram…'}
-          </Text>
-        )}
-        {fits && isTurned && <Text dimColor>Drawn top to bottom to fit the pane.</Text>}
-        {!d.isDone && fits && <Text dimColor>streaming…</Text>}
-      </Box>
-    )
-    // Only the terminal has Image: elsewhere the pane is text alone.
-    if (e.surface !== 'terminal')
-      return (
-        <Box flexDirection="column">
-          {text}
-          {hint}
-        </Box>
-      )
-
-    const { Image } = $.ui.resolve(e)
-    const mode = (await read($, view)) ?? defaultView
-    const pic = mode === 'image' ? await read($, picture) : null
-    const toggle = (
-      <Button
-        key="view"
-        hotkey="v"
-        label={mode === 'image' ? 'Show text' : 'Show image'}
-        onPress={async () => {
-          await update($, view, () => (mode === 'image' ? 'text' : 'image'))
-          void makePicture($, mmdc, defaultView, themes)
-        }}
-      />
-    )
-    if (pic?.source === d.source && 'file' in pic) {
-      const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, e.props.scroll.bodyRows - 3), density)
-      return (
-        <Box flexDirection="column">
-          <Image key="diagram" source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
-          {/* A file:// hyperlink: Rex's Quick Look reads it even where the path wraps, and a space off the pane's border, which it reads as part of a bare path. */}
-          <Box paddingLeft={1}>
-            <Link href={`file://${encodeURI(pic.file)}`}><Text color="suggestion" underline>open image ↗</Text></Link>
-          </Box>
-          {toggle}
-          {hint}
-        </Box>
-      )
-    }
-    const note =
-      mode !== 'image' ? null
-      : !d.isDone ? 'Image once the diagram is finished.'
-      : pic?.source === d.source && 'error' in pic ? `No image: ${pic.error}`
-      : 'Making the image…'
+  // The .mmd files a reply names drawn under its block (and, off the terminal, where CodeBlock isn't raised, its mermaid blocks); the stored reply keeps its source.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const row = await next(e)
+    const all = await replyDiagrams($, e.props.text)
+    const inPlace = new Set(e.surface === 'terminal' ? mermaidBlocks(e.props.text).map(d => d.source.trimEnd()) : [])
+    const done = all.filter(s => !inPlace.has(s))
+    if (!done.length) return row
+    const { Box, Text } = $.ui.resolve(e)
+    const drawn = await Promise.all(done.map(async (source, i) => <Box key={`d${i}`}>{(await drawOne($, e, source, drawing)) ?? <Text dimColor>{fit(source, 9999).art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}</Box>))
     return (
       <Box flexDirection="column">
-        {text}
-        {note && <Text dimColor>{note}</Text>}
-        {toggle}
-        {hint}
+        {row}
+        <Box flexDirection="column" paddingLeft={2} marginTop={1} gap={1}>
+          {drawn}
+        </Box>
       </Box>
     )
   })
