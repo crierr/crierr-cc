@@ -244,6 +244,15 @@ async function pngFile($: EngineInterface, file: string): Promise<Shot> {
   return { file, ...size, generation: Date.now(), isTemp: true }
 }
 
+/** Puts a PNG on the clipboard of the machine Claude Code runs on: osascript on macOS, else wl-copy or xclip; the toast says how it went. */
+async function copyImage($: EngineInterface, png: string) {
+  // The path goes in as an argument, never into the script's text.
+  const mac = ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)', '-e', 'end run', png]
+  const linux = ['sh', '-c', 'wl-copy --type image/png < "$1" 2>/dev/null || xclip -selection clipboard -t image/png -i "$1"', 'sh', png]
+  const run = await $.process.run(mac).catch(() => $.process.run(linux)).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+  $.ui.toast(run.exitCode === 0 ? 'Image copied' : `Couldn't copy the image: ${run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`}`)
+}
+
 export const register: Register = (on, options) => {
   const web = String(options.web ?? 'ask')
   const maxRows = Math.max(2, Number(options.maxRows) || 20)
@@ -300,11 +309,32 @@ export const register: Register = (on, options) => {
       const { columns, rows } = cells(shot.width, shot.height, cols, maxRows)
       // The original, not shot.file: a converted or downloaded PNG is deleted when the session ends.
       if (shot.frames) play($, e.requestId, `img-${key}`, shot.frames)
-      const href = isWeb(target) ? target : `file://${encodeURI(await localPath($, target))}`
+      const where = isWeb(target) ? target : await localPath($, target)
       drawn.push(
         <Box flexDirection="column">
           <Image key={`img-${key}`} source={{ file: shot.file, format: 'png', generation: shot.generation }} columns={columns} rows={rows} alt={`Image: ${target} (the terminal can't show images here)`} />
-          <Link href={href}><Text color="suggestion" underline>open image ↗</Text></Link>
+          <Box gap={2}>
+          {/* The icon is a hyperlink to the original, so Rex's Quick Look previews it; the word is the button. */}
+          <Box>
+          <Link href={isWeb(target) ? target : `file://${encodeURI(where)}`}><Text color="suggestion">↗</Text></Link>
+          <Button
+            key={`open-${key}`}
+            label="open"
+            plain
+            dimColor
+            onPress={async () => {
+              // macOS's open, else Linux's xdg-open: a file in the image viewer, a URL in the browser.
+              const run = await $.process.run(['open', where]).catch(() => $.process.run(['xdg-open', where])).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+              if (run.exitCode !== 0) $.ui.toast(`Couldn't open the image: ${run.stderr.trim() || `exit ${run.exitCode}`}`)
+            }}
+          >
+            {' open'}
+          </Button>
+          </Box>
+          <Button key={`copy-${key}`} label="copy" plain dimColor onPress={() => copyImage($, shot.file)}>
+            <Text color="suggestion">⎘</Text> copy
+          </Button>
+          </Box>
         </Box>,
       )
     }
