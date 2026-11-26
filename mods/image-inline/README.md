@@ -1,6 +1,6 @@
 # image-inline
 
-When a reply names an image, the image is drawn under the reply, with an **open image ↗** link to the file or URL below it.
+When a reply names an image, the image is drawn under the reply, with buttons below it: **↗ open** opens the file in your image viewer, or the URL in your browser; **⎘ copy** puts the image itself on the clipboard (macOS, or Linux with `wl-copy` or `xclip`).
 
 ## Requirements
 
