@@ -1,6 +1,8 @@
 # mermaid
 
-Draws each ````mermaid```` block of a reply as a diagram. The reply itself is unchanged: the source stays above the diagram. A `.mmd` or `.mermaid` file a reply names (`docs/flow.mmd`, `[flow](flow.mmd)`, a `file://` URL) is read and drawn the same way.
+Draws each ````mermaid```` block of a reply as a diagram. Inline in the terminal, the diagram takes the block's place and its source is hidden (a block it can't draw keeps its source); the stored reply, `/copy` and ctrl+o keep the source. A `.mmd` or `.mermaid` file a reply names (`docs/flow.mmd`, `[flow](flow.mmd)`, a `file://` URL) is read and drawn the same way.
+
+Under each inline diagram: **⎘ code** copies its mermaid source; in image view also **↗ open** (the PNG in your image viewer) and **⎘ img** (the PNG itself on the clipboard: macOS, or Linux with `wl-copy` or `xclip`).
 
 ## Requirements
 
@@ -31,7 +33,7 @@ Without it, diagrams show only when Claude happens to write Mermaid.
 
 ## Usage
 
-**Inline** (the default): each finished diagram is drawn under the reply. Left, image view; right, text view.
+**Inline** (the default): each finished diagram is drawn where its block was (in the desktop and other apps, under the reply). Left, image view; right, text view.
 
 ![mermaid inline: image view on the left, text view on the right](../../docs/screenshots/mermaid-inline.png)
 
