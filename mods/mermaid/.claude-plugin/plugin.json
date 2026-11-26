@@ -1,24 +1,13 @@
 {
   "name": "mermaid",
-  "version": "0.9.0",
-  "description": "Draws ```mermaid blocks of a reply under the reply, or in a pane live as it streams (lovely-mermaid)",
+  "version": "0.10.0",
+  "description": "Draws ```mermaid blocks of a reply, and the .mmd files it names, in place in the terminal (lovely-mermaid or mermaid-cli)",
   "types": "./types/index.d.ts",
   "userConfig": {
-    "placement": {
-      "type": "string",
-      "title": "Where diagrams show",
-      "description": "inline: every finished diagram under the reply that holds it. pane (auto-open): the latest diagram in the Mermaid pane, which opens by itself when a reply streams one. pane (/mermaid): the same pane, opened only with /mermaid. /mermaid opens the pane in every mode. All follow View: text or image.",
-      "default": "inline",
-      "options": [
-        "inline",
-        "pane (auto-open)",
-        "pane (/mermaid)"
-      ]
-    },
     "view": {
       "type": "string",
       "title": "View",
-      "description": "text: Unicode box art. image: a PNG made by mermaid-cli (mmdc), drawn with the kitty graphics protocol; box art while the diagram streams. The pane button switches for the session, inline diagrams too.",
+      "description": "text: Unicode box art. image: a PNG made by mermaid-cli (mmdc), drawn with the kitty graphics protocol; box art while the PNG is made.",
       "default": "text",
       "options": [
         "text",
@@ -34,7 +23,7 @@
     "density": {
       "type": "number",
       "title": "Image density",
-      "description": "PNG pixels per terminal column (mmdc draws at scale 2). Lower: bigger diagrams; higher: smaller. A diagram never grows past the pane's width.",
+      "description": "PNG pixels per terminal column (mmdc draws at scale 2). Lower: bigger diagrams; higher: smaller. A diagram never grows past the terminal's width.",
       "default": 16
     },
     "autoSwitch": {
