@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { cells, fit, lastMermaid, mmdFiles, pngSize } from '../hooks/register'
+import { cells, fit, hash, lastMermaid, mmdFiles, pngSize } from '../hooks/register'
 
 const PANE = {
   plugin: 'mermaid',
@@ -232,29 +232,69 @@ test('inline (the default): box art drawn under the reply, the reply kept; no pa
   })
   for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }));
   expect(opened).toBe(0)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...MESSAGE, surface })
-    expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
-    await ui.unmount()
-  }
-  const open = await $.ui.mount({ ...MESSAGE, surface: 'terminal', props: { ...MESSAGE.props, text: REPLY.slice(0, 4).join('\n') } })
-  expect(await open.find({ type: 'Text', text: /Start/ })).toBe(undefined) // still streaming: nothing drawn yet
-  await open.unmount()
+  const desktop = await $.ui.mount({ ...MESSAGE, surface: 'desktop' })
+  expect((await desktop.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+  await desktop.unmount()
+  const under = await $.ui.mount({ ...MESSAGE, surface: 'terminal' })
+  expect(await under.find({ type: 'Text', text: /Start/ })).toBe(undefined) // the terminal draws it in the fence's place
+  await under.unmount()
 })
 
-test('inline image: one PNG per diagram, drawn under the reply', { options: { view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+const CODE = {
+  plugin: 'mermaid',
+  component: 'CodeBlock',
+  requestId: 'code1',
+  surface: 'terminal',
+  props: { language: 'mermaid', source: REPLY.slice(2, 4).join('\n'), isClosed: true },
+} as const
+
+test('inline, terminal: a closed mermaid fence is drawn in its own place, its source hidden', async ($, on) => {
+  let copied = ''
+  on('ui.copy', (_$, c) => { copied = c.text; return { value: { isCopied: true } } })
+  const ui = await $.ui.mount(CODE)
+  expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
+  expect(await ui.find({ type: 'Text', text: /-->/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Button', key: `open:${hash(CODE.props.source)}` })).toBe(undefined) // no PNG in text view: nothing to open
+  await ui.press({ key: `copy:${hash(CODE.props.source)}` })
+  expect(copied).toBe(CODE.props.source) // text view has the copy button too
+  await ui.unmount()
+  const open = await $.ui.mount({ ...CODE, props: { ...CODE.props, source: '', isClosed: false } })
+  expect(await open.find({ type: 'Text', text: /Drawing diagram/ })).toBeDefined()
+  await open.unmount()
+  const bad = await $.ui.mount({ ...CODE, props: { ...CODE.props, source: 'not a diagram %%%' } })
+  expect(await bad.find({ type: 'Text', text: /│/ })).toBe(undefined) // undrawable: the engine's code block, with its source
+  await bad.unmount()
+})
+
+test('pane: the fence keeps its source', PANE_MODE, async $ => {
+  const ui = await $.ui.mount(CODE)
+  expect(await ui.find({ type: 'Text', text: /│/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('inline image: one PNG per diagram, drawn in the fence', { options: { view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
+  let copied = ''
+  on('ui.copy', (_$, c) => { copied = c.text; return { value: { isCopied: true } } })
   const { argv } = imageWorld(on)
-  const ui = await $.ui.mount({ ...MESSAGE, surface: 'terminal' })
+  const ui = await $.ui.mount(CODE)
   await settle()
   expect(argv[0]?.[4]).toMatch(/^\/tmp-x\/claude-mermaid\/s1-[a-z0-9]+\.png$/)
   expect(await ui.find({ type: 'Image' })).toBeDefined()
-  expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: `file://${argv[0]?.[4]}` }, children: [{ props: { underline: true }, children: ['open image ↗'] }] })
+  const png = argv[0]?.[4]
+  expect((await ui.find({ type: 'Link' }))?.props.href).toBe(`file://${png}`) // the ↗ icon: a hyperlink for Rex's Quick Look
+  await ui.press({ key: `open:${hash(CODE.props.source)}` })
+  expect(argv.at(-1)).toEqual(['open', png]) // the open button opens the PNG
+  await ui.press({ key: `copy:${hash(CODE.props.source)}` })
+  expect(copied).toBe(CODE.props.source) // ⎘ code puts the mermaid source on the clipboard
+  await ui.press({ key: `img:${hash(CODE.props.source)}` })
+  expect(argv.at(-1)?.[0]).toBe('osascript') // ⎘ img puts the PNG itself there
+  expect(argv.at(-1)?.at(-1)).toBe(png)
   await ui.unmount()
 })
 
 test('inline image: no taller than the terminal, less room for the prompt', { options: { view: 'image', density: 1 } }, async ($, on) => {
   imageWorld(on)
-  const ui = await $.ui.mount({ ...MESSAGE, surface: 'terminal', viewport: { columns: 80, rows: 20 } })
+  const ui = await $.ui.mount({ ...CODE, viewport: { columns: 80, rows: 20 } })
   await settle()
   expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ rows: 16 })
   await ui.unmount()
@@ -280,7 +320,7 @@ test('inline: a .mmd file the reply names is drawn under it; a missing one is no
   expect((await ui.find({ type: 'Text', text: /Start/ }))?.text).toContain('│')
   await ui.unmount()
   const both = await $.ui.mount(props('I wrote docs/flow.mmd:\n\n```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```\n'))
-  expect((await both.findAll({ type: 'Text', text: /Start/ })).length).toBe(1)
+  expect((await both.findAll({ type: 'Text', text: /Start/ })).length).toBe(0) // its fence draws it in place
   await both.unmount()
   const none = await $.ui.mount(props('I wrote docs/gone.mmd.'))
   expect(await none.find({ type: 'Text', text: /Start/ })).toBe(undefined)

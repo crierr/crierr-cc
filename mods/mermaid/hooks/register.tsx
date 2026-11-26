@@ -194,6 +194,88 @@ function makePicture($: EngineInterface, mmdc: string, defaultView: View, themes
   }))
 }
 
+/** Puts a PNG on the clipboard of the machine Claude Code runs on: osascript on macOS, else wl-copy or xclip; the toast says how it went. */
+async function copyImage($: EngineInterface, png: string) {
+  // The path goes in as an argument, never into the script's text.
+  const mac = ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)', '-e', 'end run', png]
+  const linux = ['sh', '-c', 'wl-copy --type image/png < "$1" 2>/dev/null || xclip -selection clipboard -t image/png -i "$1"', 'sh', png]
+  const run = await $.process.run(mac).catch(() => $.process.run(linux)).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+  $.ui.toast(run.exitCode === 0 ? 'Image copied' : `Couldn't copy the image: ${run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`}`)
+}
+
+/** One diagram's drawing" 2>/dev/null || xclip -selection clipboard -t image/png -i "/** One diagram's drawing"', 'sh', png]
+  const run = await $.process.run(mac).catch(() => $.process.run(linux)).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+  $.ui.toast(run.exitCode === 0 ? 'Image copied' : `Couldn't copy the image: ${run.stderr.trim().split('\n').pop() || `exit ${run.exitCode}`}`)
+}
+
+/** One diagram's drawing: the PNG in image view once made, else box art; null when box art can't be drawn or is too wide. */
+async function drawOne($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0] & { viewport?: { columns: number; rows: number } }, source: string, o: { defaultView: View; density: number; mmdc: string; themes: Themes }) {
+  const { defaultView, density, mmdc, themes } = o
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const copyButton = (
+    <Button
+      key={`copy:${hash(source)}`}
+      label="code"
+      plain
+      dimColor
+      onPress={async () => {
+        const done = await $.ui.copy({ text: source, surface: e.surface })
+        $.ui.toast(done.isCopied ? 'Mermaid source copied' : `Couldn't copy: ${done.reason}`)
+      }}
+    >
+      <Text color="suggestion">⎘</Text> code
+    </Button>
+  )
+  const cols = Math.max(20, (e.viewport?.columns ?? 80) - 2)
+  const isImage = e.surface === 'terminal' && ((await read($, view)) ?? defaultView) === 'image'
+  const pic = isImage ? (await read($, inline))[hash(source)] : undefined
+  if (pic && 'file' in pic && e.surface === 'terminal') {
+    const file = pic.file
+    const { Image, Link } = $.ui.resolve(e)
+    // The icon is a file:// hyperlink, so Rex's Quick Look previews the PNG; the word is the button.
+    const openButton = (
+      <Box>
+      <Link href={`file://${encodeURI(file)}`}><Text color="suggestion">↗</Text></Link>
+      <Button
+        key={`open:${hash(source)}`}
+        label="open"
+        plain
+        dimColor
+        onPress={async () => {
+          // macOS's open, else Linux's xdg-open: the PNG in the person's image viewer.
+          const run = await $.process.run(['open', file]).catch(() => $.process.run(['xdg-open', file])).catch((err: unknown) => ({ exitCode: 1, stderr: String(err) }))
+          if (run.exitCode !== 0) $.ui.toast(`Couldn't open the image: ${run.stderr.trim() || `exit ${run.exitCode}`}`)
+        }}
+      >
+        {' open'}
+      </Button>
+      </Box>
+    )
+    const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8)), density) // 80% of the terminal: the rest for the link, prompt, status line and spinner
+    return (
+      <Box flexDirection="column">
+        <Image source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
+        <Box gap={2}>
+          {openButton}
+          {copyButton}
+          <Button key={`img:${hash(source)}`} label="img" plain dimColor onPress={() => copyImage($, file)}>
+            <Text color="suggestion">⎘</Text> img
+          </Button>
+        </Box>
+      </Box>
+    )
+  }
+  if (isImage && !pic) void makeInline($, mmdc, themes, source)
+  const { art } = fit(source, cols)
+  if (!art || art.width > cols) return null
+  return (
+    <Box flexDirection="column">
+      {art.plain.map(line => <Text>{line || ' '}</Text>)}
+      {isImage ? <Box gap={2}><Text dimColor>{pic && 'error' in pic ? `No image: ${pic.error}` : 'Making the image…'}</Text>{copyButton}</Box> : copyButton}
+    </Box>
+  )
+}
+
 export const register: Register = (on, options) => {
   const placement = String(options.placement ?? 'inline')
   const isInline = !placement.startsWith('pane')
@@ -274,37 +356,28 @@ export const register: Register = (on, options) => {
     return stream.result
   })
 
-  // Inline: each finished diagram drawn under the reply block that holds it; the stored reply keeps its source.
+  const drawing = { defaultView, density, mmdc, themes }
+  // Inline, terminal: a closed mermaid fence draws its diagram in its own place, the source hidden; one it can't draw shows its source.
+  if (isInline)
+    on('ui.render', { component: 'CodeBlock' }, async ($, e, next) => {
+      if (e.props.language !== 'mermaid') return next(e)
+      const { Text } = $.ui.resolve(e)
+      if (!e.props.isClosed) return <Text dimColor>Drawing diagram…</Text>
+      const source = e.props.source.trimEnd()
+      if (!source.trim()) return next(e)
+      return (await drawOne($, e, source, drawing)) ?? next(e)
+    })
+
+  // Inline: the .mmd files a reply names drawn under its block (and, off the terminal, where CodeBlock isn't raised, its mermaid blocks); the stored reply keeps its source.
   if (isInline)
     on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
       const row = await next(e)
-      const done = await replyDiagrams($, e.props.text)
+      const all = await replyDiagrams($, e.props.text)
+      const inPlace = new Set(e.surface === 'terminal' ? mermaidBlocks(e.props.text).map(d => d.source.trimEnd()) : [])
+      const done = all.filter(s => !inPlace.has(s))
       if (!done.length) return row
       const { Box, Text } = $.ui.resolve(e)
-      const cols = Math.max(20, (e.viewport?.columns ?? 80) - 2)
-      const isImage = e.surface === 'terminal' && ((await read($, view)) ?? defaultView) === 'image'
-      const pics = isImage ? await read($, inline) : {}
-      const drawn = done.map((source, i) => {
-        const pic = pics[hash(source)]
-        if (isImage && pic && 'file' in pic) {
-          const { Image, Link } = $.ui.resolve(e)
-          const { columns, rows } = cells(pic.width, pic.height, cols, Math.max(4, Math.floor((e.viewport?.rows ?? 38) * 0.8)), density) // 80% of the terminal: the rest for the link, prompt, status line and spinner
-          return (
-            <Box key={`d${i}`} flexDirection="column">
-              <Image source={{ file: pic.file, format: 'png', generation: pic.generation }} columns={columns} rows={rows} alt="Mermaid diagram (the terminal can't show images here)" />
-              <Link href={`file://${encodeURI(pic.file)}`}><Text color="suggestion" underline>open image ↗</Text></Link>
-            </Box>
-          )
-        }
-        if (isImage && !pic) void makeInline($, mmdc, themes, source)
-        const { art } = fit(source, cols)
-        return (
-          <Box flexDirection="column">
-            {art && art.width <= cols ? art.plain.map(line => <Text>{line || ' '}</Text>) : <Text dimColor>{art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}
-            {isImage && <Text dimColor>{pic && 'error' in pic ? `No image: ${pic.error}` : 'Making the image…'}</Text>}
-          </Box>
-        )
-      })
+      const drawn = await Promise.all(done.map(async (source, i) => <Box key={`d${i}`}>{(await drawOne($, e, source, drawing)) ?? <Text dimColor>{fit(source, 9999).art ? 'Diagram too wide to draw here.' : "Can't draw this diagram."}</Text>}</Box>))
       return (
         <Box flexDirection="column">
           {row}
