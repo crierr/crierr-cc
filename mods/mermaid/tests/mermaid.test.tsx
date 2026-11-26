@@ -108,6 +108,7 @@ test('reads a PNG size and fits it to the pane', async () => {
 function imageWorld(on: On, run = { exitCode: 0, stderr: '' }, theme = 'dark', appearance = '') {
   const argv: string[][] = []
   const writes: string[] = []
+  const stdins: (string | undefined)[] = []
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('env.get', (_$, e) => ({ value: e.name === 'TMPDIR' ? '/tmp-x/' : undefined }))
   on('session.id', () => ({ value: 's1' }))
@@ -116,6 +117,7 @@ function imageWorld(on: On, run = { exitCode: 0, stderr: '' }, theme = 'dark', a
   on('process.run', (_$, e) => {
     if (e.argv[0] === 'defaults') return { value: { exitCode: appearance ? 0 : 1, stdout: appearance, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     argv.push([...e.argv])
+    stdins.push(e.init?.stdin)
     return { value: { ...run, stdout: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('fs.read', () => ({ value: { base64: SIZE } }))
@@ -123,7 +125,7 @@ function imageWorld(on: On, run = { exitCode: 0, stderr: '' }, theme = 'dark', a
     yield { kind: 'text', index: 0, text: REPLY.join('\n') } as const
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
-  return { argv, writes }
+  return { argv, writes, stdins }
 }
 
 // The picture is made after the hook returns: let its queued work run out.
@@ -134,10 +136,12 @@ const stream = async ($: Engine) => {
 }
 
 test('image view: a finished diagram becomes a PNG drawn in the pane', { options: { placement: 'pane (auto-open)', view: 'image', mmdc: '/bin/mmdc' } }, async ($, on) => {
-  const { argv, writes } = imageWorld(on)
+  const { argv, writes, stdins } = imageWorld(on)
   await stream($)
   expect(writes).toEqual(['/tmp-x/claude-mermaid/s1.mmd'])
-  expect(argv[0]?.slice(0, 5)).toEqual(['/bin/mmdc', '-i', '/tmp-x/claude-mermaid/s1.mmd', '-o', '/tmp-x/claude-mermaid/s1.png'])
+  expect(argv[0]?.slice(0, 7)).toEqual(['/bin/mmdc', '-i', '/tmp-x/claude-mermaid/s1.mmd', '-o', '/tmp-x/claude-mermaid/s1.png', '-p', '/dev/stdin'])
+  // over a pipe, Chrome exits with mmdc: a killed run leaves no orphan browser
+  expect(JSON.parse(stdins[0] ?? '')).toEqual({ pipe: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Image' })).toBeDefined()
   expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: 'file:///tmp-x/claude-mermaid/s1.png' }, children: [{ props: { underline: true }, children: ['open image ↗'] }] })

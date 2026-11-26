@@ -150,11 +150,16 @@ async function removeFiles($: EngineInterface, sessionId: string) {
   await $.process.run(['rm', '-f', input, output, ...pngs]).catch(() => undefined)
 }
 
+// puppeteer starts Chrome in its own process group, so a SIGKILLed mmdc (the timeout's last resort, or Claude Code going)
+// orphans it; over a pipe instead of a socket, Chrome exits when mmdc's end closes. On stdin, not a file: a shared
+// temp folder (no TMPDIR) would let another user swap in launch options, executablePath included.
+const PUPPETEER = JSON.stringify({ pipe: true })
+
 /** Runs mmdc on `source` into `output`: the picture, or why there is none. */
 async function mmdcPicture($: EngineInterface, mmdc: string, source: string, look: string, input: string, output: string): Promise<Picture> {
   try {
     await $.fs.write(input, source)
-    const run = await $.process.run([mmdc, '-i', input, '-o', output, '-t', look, '-b', 'transparent', '-s', '2', '-q'], { timeoutMs: 60_000 })
+    const run = await $.process.run([mmdc, '-i', input, '-o', output, '-p', '/dev/stdin', '-t', look, '-b', 'transparent', '-s', '2', '-q'], { stdin: PUPPETEER, timeoutMs: 60_000 })
     if (run.exitCode !== 0) throw new Error(run.stderr.trim().split('\n').pop() || `${mmdc} exited ${run.exitCode}`)
     const { base64 } = await $.fs.read(output, { as: 'bytes', offset: 16, length: 8 })
     return { source, theme: look, file: output, ...pngSize(base64), generation: Date.now() }

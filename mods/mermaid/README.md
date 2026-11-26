@@ -43,7 +43,7 @@ Without it, diagrams show only when Claude happens to write Mermaid.
 | --- | --- | --- |
 | Where diagrams show | `inline`, `pane (auto-open)`, `pane (/mermaid)` | `inline` |
 | View | `text`: Unicode box art. `image`: a PNG made by mermaid-cli | `text` |
-| mermaid-cli command | path to `mmdc` | `mmdc` |
+| mermaid-cli command | path to `mmdc`. A wrapper script must not pass its own `-p`: the mod passes `-p` with `{"pipe": true}` (so Chrome exits with mmdc), and mmdc keeps only the last one | `mmdc` |
 | Image density | PNG pixels per terminal column: lower draws diagrams bigger, higher smaller. Never wider than the pane | `16` |
 | Image theme: auto switch | on: light or dark theme by Claude Code's theme, then macOS appearance. off: Image theme | on |
 | Image light theme | `default`, `forest`, `neutral`, `neo`, `redux`, `redux-color` | `redux-color` |
